@@ -13,90 +13,54 @@ supported_platforms:
   - linux
 
 api:
-  versions:
-    - v1
+  versions: [v1]
   endpoints:
-    - name: health
-      url: /healthz
-      purpose: Local process health for the Development service.
-    - name: readiness
-      url: /readyz
-      purpose: Local service readiness after configuration and event-journal initialization.
-    - name: status
-      url: /api/v1/status
-      purpose: Bounded Development lifecycle, camera-count, aggregate sanitized media-state, and aggregate session-state status without private camera details.
-    - name: cameras
-      url: /api/v1/cameras
-      purpose: Sanitized read-only camera identity, enabled state, bounded media probe status, and bounded session status without stream URLs, credential references, or raw diagnostics.
-    - name: events
-      url: /api/v1/events
-      purpose: Bounded read-only local security-event metadata access.
+    - {name: health, url: /healthz, purpose: Local Development process health.}
+    - {name: readiness, url: /readyz, purpose: Local Development service readiness.}
+    - {name: status, url: /api/v1/status, purpose: Sanitized lifecycle and aggregate camera/media/session status.}
+    - {name: cameras, url: /api/v1/cameras, purpose: Sanitized camera identity and bounded media/session state.}
+    - {name: events, url: /api/v1/events, purpose: Bounded read-only local security-event metadata.}
 
 platform_systems:
   manager:
     result: applicable-blocked
     version: null
-    evidence:
-      - SPECIFICATIONS.md
-    notes: Operational status is applicable, but no accepted GoreeCloud Manager runtime integration exists.
+    evidence: [SPECIFICATIONS.md]
+    notes: No accepted Manager runtime integration exists.
   privacy_shield:
     result: applicable-blocked
     version: null
-    evidence:
-      - PRIVACY.md
-      - internal/config/config.go
-      - internal/camera/registry.go
-      - internal/media/descriptor.go
-      - internal/media/session.go
-      - internal/api/server_test.go
-    notes: Source-level privacy-safe defaults, credential-transfer minimization, and bounded media/session status exist, but the approved Privacy Shield adapter/contract and runtime acceptance are not integrated.
+    evidence: [PRIVACY.md, internal/media/descriptor.go, internal/media/rtsp_worker.go, internal/api/server_test.go]
+    notes: Local-first/minimized source controls exist; Privacy Shield contract/runtime acceptance is not integrated.
   wardveil_security:
     result: applicable-blocked
     version: null
-    evidence:
-      - SECURITY.md
-      - internal/config/config.go
-      - internal/media/descriptor.go
-      - internal/media/session.go
-      - internal/media/supervisor.go
-      - internal/media/recording.go
-    notes: Development source controls, shell-free media commands, minimal child environments, protected descriptor primitives, and credentialed-process blocking exist, but Wardveil Security integration, authentication/authorization, remote exposure acceptance, and production security validation are incomplete.
+    evidence: [SECURITY.md, internal/media/descriptor.go, internal/media/rtsp_worker.go, internal/media/session.go, internal/media/supervisor.go]
+    notes: Protected credential transfer, bounded RTSP parsing, TLS verification, and retry policy exist; Wardveil integration and production security acceptance remain incomplete.
   everkeep:
     result: applicable-blocked
     version: null
-    evidence:
-      - RECOVERY.md
-      - internal/events/journal.go
-      - docs/MEDIA-ENGINE.md
-    notes: The local event journal is portable as a file and recording layout is only planned; accepted Everkeep backup, restore, recovery, migration, rollback, and restore-validation evidence do not exist.
+    evidence: [RECOVERY.md, internal/events/journal.go]
+    notes: Accepted backup/restore/recovery/migration/rollback evidence does not exist.
   glaze_ui:
     result: applicable-blocked
     version: null
-    evidence:
-      - SPECIFICATIONS.md
-    notes: The user interface is not implemented. Current Stable Glaze UI integration and acceptance remain required before production qualification.
+    evidence: [SPECIFICATIONS.md]
+    notes: No user interface exists yet.
   mesh:
     result: applicable-blocked
     version: null
-    evidence:
-      - SPECIFICATIONS.md
-      - docs/ARCHITECTURE.md
-    notes: Mesh registration, capability discovery, policy, event publication, relationships, and runtime evidence integration are not implemented.
-    capabilities:
-      - home-security.cameras.read
-      - home-security.events.read
-      - home-security.recordings
-      - home-security.detection
+    evidence: [SPECIFICATIONS.md, docs/ARCHITECTURE.md]
+    notes: Registration, policy, relationships, dependencies, and event integration are not implemented.
+    capabilities: [home-security.cameras.read, home-security.events.read, home-security.recordings, home-security.detection]
     dependencies: []
     published_events: []
     consumed_events: []
   identity:
     result: applicable-blocked
     version: null
-    evidence:
-      - SECURITY.md
-      - SPECIFICATIONS.md
-    notes: GoreeCloud Identity authentication, sessions, authorization, household roles, and service identities are not implemented; the Development API therefore remains loopback-only.
+    evidence: [SECURITY.md, SPECIFICATIONS.md]
+    notes: Authentication, sessions, authorization, household roles, and service identities are not implemented; API remains loopback-only.
 
 health:
   health_endpoint: /healthz
@@ -106,36 +70,32 @@ continuity:
   backup:
     required: true
     requirements:
-      - Protect Home Security configuration, authoritative metadata, review/rule state, and selected media according to explicit retention and recovery policy.
-      - Keep reusable camera credentials outside ordinary source and portable configuration backups unless a separately protected secret-recovery mechanism requires them.
+      - Protect configuration, authoritative metadata, review/rule state, and selected media according to explicit policy.
+      - Keep reusable camera credentials outside ordinary portable backups absent an approved protected secret-recovery design.
   restore:
     required: true
     requirements:
-      - Validate restoration into a clean isolated target before Stable or production acceptance.
-      - Verify metadata/media integrity, secret references, authorization boundaries, and rollback behavior for the exact candidate.
+      - Validate clean-target restoration before Stable/production acceptance.
   export:
     required: true
     requirements:
-      - Provide authorized user-selected recording, clip, snapshot, and appropriate metadata export in documented portable formats.
+      - Provide authorized portable media and appropriate metadata export.
   portability:
     required: true
     requirements:
-      - Keep authoritative Home Security metadata and migration-relevant configuration in documented versioned formats independent of any complete third-party NVR product architecture.
+      - Keep authoritative metadata/configuration in documented versioned formats independent of third-party complete NVR architecture.
 
 external_dependencies:
   - name: ffmpeg-ffprobe
-    purpose: Optional Development media foundation for bounded RTSP/RTSPS probing and opt-in unauthenticated null-sink session supervision, with future remux/segment/decode worker roles; Home Security remains the application authority.
+    purpose: Optional bounded Development stream probing and future recording/remux/decode foundation; the authenticated long-running RTSP session worker is GoreeCloud-owned.
     required: false
     version_constraint: null
 
 compatibility:
   platform_contract: '0.2'
   glaze_ui_required: '1.1.0'
-  requires:
-    - goreecloud-platform-contract==0.2
-    - glaze-ui==1.1.0
-  provides:
-    - home-security-api-v1
+  requires: [goreecloud-platform-contract==0.2, glaze-ui==1.1.0]
+  provides: [home-security-api-v1]
 
 evidence:
   acceptance_tests:
@@ -148,6 +108,7 @@ evidence:
     - internal/media/descriptor_test.go
     - internal/media/session_test.go
     - internal/media/supervisor_test.go
+    - internal/media/rtsp_worker_test.go
     - internal/media/recording_test.go
   release: []
 
@@ -161,22 +122,15 @@ conformance:
     - RECOVERY.md
     - docs/ARCHITECTURE.md
     - docs/MEDIA-ENGINE.md
-    - internal/config/config_test.go
-    - internal/api/server_test.go
     - internal/media/descriptor_test.go
     - internal/media/session_test.go
     - internal/media/supervisor_test.go
+    - internal/media/rtsp_worker_test.go
   blockers:
-    - The protected descriptor contract is not yet consumed by an authenticated RTSP media worker, so credentialed media execution remains blocked.
-    - Opt-in unauthenticated session supervision is source-validated only; exact real-camera sustained-flow, stall detection, reconnect, and target-runtime evidence do not exist.
+    - The GoreeCloud-owned authenticated RTSP worker is source/test validated only against a controlled local server; exact physical-camera sustained-flow, reconnect/stall, TLS trust, and target-runtime evidence do not exist.
+    - Production worker artifact/path integrity, sandbox/resource isolation, parser fuzzing, and Wardveil acceptance are incomplete.
+    - Persisted camera offline/recovery events and separate tamper detection are not implemented.
     - Recorder execution, crash-safe segment indexing, retention/storage-pressure enforcement, playback, restreaming, motion detection, object inference/tracking, and review UI are not implemented.
-    - GoreeCloud Manager operational integration and acceptance are incomplete.
-    - Privacy Shield contract integration and runtime privacy acceptance are incomplete.
-    - Wardveil Security integration, Identity-backed authorization, and production security validation are incomplete.
-    - Everkeep backup, restore, recovery, migration, rollback, and restore validation are incomplete.
-    - Current Stable Glaze UI implementation and acceptance are incomplete because no user interface exists yet.
-    - GoreeCloud Mesh registration, policy, dependency/event integration, and runtime acceptance are incomplete.
-    - GoreeCloud Identity account, session, authentication, authorization, and household-role integration are incomplete.
-    - FFmpeg/FFprobe has a bounded Development adapter but no production-selected/pinned version, artifact provenance, target-runtime acceptance, or hardware-acceleration validation.
-    - Target hardware, accelerator, storage, load, privacy, security, recovery, and production deployment acceptance are incomplete.
-    - No Stable or production-approved GoreeCloud Home Security release evidence exists.
+    - GoreeCloud Manager, Privacy Shield, Wardveil Security, Everkeep, Glaze UI, GoreeCloud Mesh, and GoreeCloud Identity integrations/acceptance are incomplete.
+    - FFmpeg/FFprobe has no production-selected/pinned version, artifact provenance, target-runtime acceptance, or hardware-acceleration validation.
+    - No Stable or production-approved Home Security release evidence exists.

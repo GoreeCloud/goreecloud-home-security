@@ -9,14 +9,16 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/GoreeCloud/goreecloud-home-security/internal/config"
 )
 
 const (
-	WorkerDescriptorVersion  = 1
+	WorkerDescriptorVersion  = 2
 	workerDescriptorMaxBytes = 64 << 10
 	WorkerDescriptorFD       = 3
+	WorkerStatusFD           = 4
 )
 
 var workerCameraIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
@@ -24,33 +26,30 @@ var workerCameraIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 type SecretLookup func(name string) (string, bool)
 
 type WorkerDescriptor struct {
-	Version   int    `json:"version"`
-	CameraID  string `json:"camera_id"`
-	StreamURL string `json:"stream_url"`
-	Username  string `json:"username,omitempty"`
-	Password  string `json:"password,omitempty"`
+	Version          int    `json:"version"`
+	CameraID         string `json:"camera_id"`
+	StreamURL        string `json:"stream_url"`
+	Username         string `json:"username,omitempty"`
+	Password         string `json:"password,omitempty"`
+	RWTimeoutSeconds int    `json:"rw_timeout_seconds"`
 }
 
-func ResolveWorkerDescriptor(camera config.Camera, lookup SecretLookup) (WorkerDescriptor, error) {
+func ResolveWorkerDescriptor(camera config.Camera, lookup SecretLookup, rwTimeout time.Duration) (WorkerDescriptor, error) {
 	if err := camera.Validate(); err != nil {
 		return WorkerDescriptor{}, err
 	}
-	d := WorkerDescriptor{Version: WorkerDescriptorVersion, CameraID: camera.ID, StreamURL: camera.StreamURL}
-	if camera.UsernameEnv == "" {
-		if err := d.Validate(); err != nil {
-			return WorkerDescriptor{}, err
+	d := WorkerDescriptor{Version: WorkerDescriptorVersion, CameraID: camera.ID, StreamURL: camera.StreamURL, RWTimeoutSeconds: int(rwTimeout / time.Second)}
+	if camera.UsernameEnv != "" {
+		if lookup == nil {
+			return WorkerDescriptor{}, &ProbeError{Code: ReasonCredentialUnavailable}
 		}
-		return d, nil
+		username, okUser := lookup(camera.UsernameEnv)
+		password, okPass := lookup(camera.PasswordEnv)
+		if !okUser || !okPass || username == "" || password == "" {
+			return WorkerDescriptor{}, &ProbeError{Code: ReasonCredentialUnavailable}
+		}
+		d.Username, d.Password = username, password
 	}
-	if lookup == nil {
-		return WorkerDescriptor{}, &ProbeError{Code: ReasonCredentialUnavailable}
-	}
-	username, okUser := lookup(camera.UsernameEnv)
-	password, okPass := lookup(camera.PasswordEnv)
-	if !okUser || !okPass || username == "" || password == "" {
-		return WorkerDescriptor{}, &ProbeError{Code: ReasonCredentialUnavailable}
-	}
-	d.Username, d.Password = username, password
 	if err := d.Validate(); err != nil {
 		return WorkerDescriptor{}, err
 	}
@@ -77,8 +76,11 @@ func (d WorkerDescriptor) Validate() error {
 	if (d.Username == "") != (d.Password == "") {
 		return errors.New("worker username and password must be supplied together")
 	}
-	if len(d.Username) > 1024 || len(d.Password) > 4096 {
-		return errors.New("worker credential length is invalid")
+	if len(d.Username) > 1024 || len(d.Password) > 4096 || strings.ContainsAny(d.Username, "\r\n\x00") || strings.ContainsAny(d.Password, "\r\n\x00") {
+		return errors.New("worker credential value is invalid")
+	}
+	if d.RWTimeoutSeconds < 5 || d.RWTimeoutSeconds > 300 {
+		return errors.New("worker rw timeout must be between 5 and 300 seconds")
 	}
 	return nil
 }
@@ -107,8 +109,7 @@ func DecodeWorkerDescriptor(r io.Reader) (WorkerDescriptor, error) {
 	if r == nil {
 		return WorkerDescriptor{}, errors.New("worker descriptor reader must not be nil")
 	}
-	limited := io.LimitReader(r, workerDescriptorMaxBytes+1)
-	payload, err := io.ReadAll(limited)
+	payload, err := io.ReadAll(io.LimitReader(r, workerDescriptorMaxBytes+1))
 	if err != nil {
 		return WorkerDescriptor{}, fmt.Errorf("read worker descriptor: %w", err)
 	}
@@ -146,9 +147,6 @@ func NewWorkerDescriptorPipe(descriptor WorkerDescriptor) (*os.File, func(), err
 }
 
 func ProtectedWorkerArgs() []string {
-	return []string{fmt.Sprintf("--descriptor-fd=%d", WorkerDescriptorFD)}
+	return []string{fmt.Sprintf("--descriptor-fd=%d", WorkerDescriptorFD), fmt.Sprintf("--status-fd=%d", WorkerStatusFD)}
 }
-
-func SanitizedWorkerEnvironment(_ []string) []string {
-	return []string{"LANG=C", "LC_ALL=C", "TZ=UTC"}
-}
+func SanitizedWorkerEnvironment(_ []string) []string { return []string{"LANG=C", "LC_ALL=C", "TZ=UTC"} }

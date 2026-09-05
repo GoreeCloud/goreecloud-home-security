@@ -1,10 +1,11 @@
 package media
 
 import (
+	"bufio"
 	"context"
 	"errors"
-	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -12,74 +13,120 @@ import (
 	"github.com/GoreeCloud/goreecloud-home-security/internal/config"
 )
 
-type SessionPlan struct {
-	Executable string
-	Args       []string
-}
-
-func BuildSessionPlan(executable string, camera config.Camera, rwTimeout time.Duration) (SessionPlan, error) {
-	if err := camera.Validate(); err != nil {
-		return SessionPlan{}, err
-	}
-	if !camera.Enabled {
-		return SessionPlan{}, errors.New("camera must be enabled")
-	}
-	if camera.UsernameEnv != "" || camera.PasswordEnv != "" {
-		return SessionPlan{}, &ProbeError{Code: ReasonCredentialedProbeBlocked}
-	}
-	if rwTimeout < 5*time.Second || rwTimeout > 5*time.Minute {
-		return SessionPlan{}, errors.New("session rw timeout must be between 5 seconds and 5 minutes")
-	}
-	if strings.TrimSpace(executable) == "" {
-		executable = "ffmpeg"
-	}
-	args := []string{"-nostdin", "-hide_banner", "-loglevel", "error", "-rw_timeout", fmt.Sprintf("%d", rwTimeout.Microseconds()), "-rtsp_transport", "tcp", "-i", camera.StreamURL, "-map", "0:v:0", "-c", "copy", "-f", "null", "-"}
-	return SessionPlan{Executable: executable, Args: args}, nil
-}
-
-type ProcessRunner interface {
-	Run(ctx context.Context, executable string, args []string, started func()) error
-}
-
-type execProcessRunner struct{}
-
-func (execProcessRunner) Run(ctx context.Context, executable string, args []string, started func()) error {
-	cmd := exec.CommandContext(ctx, executable, args...)
-	cmd.Env = SanitizedWorkerEnvironment(nil)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
-	if err := cmd.Start(); err != nil {
-		return err
-	}
-	if started != nil {
-		started()
-	}
-	return cmd.Wait()
-}
-
 type Session interface {
 	Run(context.Context, config.Camera, func()) error
 }
 
-type FFmpegSession struct {
-	executable string
-	rwTimeout  time.Duration
-	runner     ProcessRunner
+type WorkerProcessRunner interface {
+	Run(ctx context.Context, executable string, descriptor WorkerDescriptor, started func()) error
 }
 
-func NewFFmpegSession(executable string, rwTimeout time.Duration) *FFmpegSession {
-	return &FFmpegSession{executable: executable, rwTimeout: rwTimeout, runner: execProcessRunner{}}
-}
-func newFFmpegSessionWithRunner(executable string, rwTimeout time.Duration, runner ProcessRunner) *FFmpegSession {
-	return &FFmpegSession{executable: executable, rwTimeout: rwTimeout, runner: runner}
-}
+type execWorkerProcessRunner struct{}
 
-func (s *FFmpegSession) Run(ctx context.Context, camera config.Camera, started func()) error {
-	plan, err := BuildSessionPlan(s.executable, camera, s.rwTimeout)
+func (execWorkerProcessRunner) Run(ctx context.Context, executable string, descriptor WorkerDescriptor, started func()) error {
+	descriptorReader, descriptorCleanup, err := NewWorkerDescriptorPipe(descriptor)
 	if err != nil {
 		return err
 	}
-	err = s.runner.Run(ctx, plan.Executable, plan.Args, started)
+	defer descriptorCleanup()
+
+	statusReader, statusWriter, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer statusReader.Close()
+
+	cmd := exec.CommandContext(ctx, executable, ProtectedWorkerArgs()...)
+	cmd.Env = SanitizedWorkerEnvironment(nil)
+	cmd.ExtraFiles = []*os.File{descriptorReader, statusWriter}
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		_ = statusWriter.Close()
+		return err
+	}
+	_ = statusWriter.Close()
+
+	eventCh := make(chan WorkerEvent)
+	eventDone := make(chan struct{})
+	go func() {
+		defer close(eventDone)
+		defer close(eventCh)
+		scanner := bufio.NewScanner(statusReader)
+		scanner.Buffer(make([]byte, 1024), workerEventMaxBytes)
+		for scanner.Scan() {
+			event, err := DecodeWorkerEvent(scanner.Bytes())
+			if err != nil {
+				continue
+			}
+			select {
+			case eventCh <- event:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	waitCh := make(chan error, 1)
+	go func() { waitCh <- cmd.Wait() }()
+
+	startedPublished := false
+	for {
+		select {
+		case event, ok := <-eventCh:
+			if ok && event.Type == WorkerEventMediaReady && !startedPublished {
+				startedPublished = true
+				if started != nil {
+					started()
+				}
+			}
+			if !ok {
+				eventCh = nil
+			}
+		case err := <-waitCh:
+			<-eventDone
+			return err
+		case <-ctx.Done():
+			err := <-waitCh
+			<-eventDone
+			if err != nil {
+				return ctx.Err()
+			}
+			return ctx.Err()
+		}
+	}
+}
+
+type WorkerSession struct {
+	executable string
+	lookup     SecretLookup
+	rwTimeout  time.Duration
+	runner     WorkerProcessRunner
+}
+
+func NewWorkerSession(executable string, lookup SecretLookup, rwTimeout time.Duration) *WorkerSession {
+	if strings.TrimSpace(executable) == "" {
+		executable = config.DefaultMediaWorkerExecutable
+	}
+	if rwTimeout <= 0 {
+		rwTimeout = time.Duration(config.DefaultMediaSessionRWTimeoutSeconds) * time.Second
+	}
+	return &WorkerSession{executable: executable, lookup: lookup, rwTimeout: rwTimeout, runner: execWorkerProcessRunner{}}
+}
+
+func newWorkerSessionWithRunner(executable string, lookup SecretLookup, rwTimeout time.Duration, runner WorkerProcessRunner) *WorkerSession {
+	return &WorkerSession{executable: executable, lookup: lookup, rwTimeout: rwTimeout, runner: runner}
+}
+
+func (s *WorkerSession) Run(ctx context.Context, camera config.Camera, started func()) error {
+	if !camera.Enabled {
+		return errors.New("camera must be enabled")
+	}
+	descriptor, err := ResolveWorkerDescriptor(camera, s.lookup, s.rwTimeout)
+	if err != nil {
+		return err
+	}
+	err = s.runner.Run(ctx, s.executable, descriptor, started)
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -89,6 +136,10 @@ func (s *FFmpegSession) Run(ctx context.Context, camera config.Camera, started f
 	var execErr *exec.Error
 	if errors.As(err, &execErr) {
 		return &ProbeError{Code: ReasonDependencyUnavailable}
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return &ProbeError{Code: WorkerReasonForExitCode(exitErr.ExitCode())}
 	}
 	return &ProbeError{Code: ReasonSessionFailed}
 }

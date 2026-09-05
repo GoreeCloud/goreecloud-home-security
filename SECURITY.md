@@ -4,50 +4,33 @@
 
 Security posture: Development / incomplete. This repository is not production-approved and does not claim Wardveil Security conformance.
 
-## Current source controls
+## Current controls
 
-- HTTP configuration rejects non-loopback addresses.
-- RTSP/RTSPS URLs containing user-info credentials are rejected.
-- Camera credential fields are environment-variable references rather than secret values.
-- Camera API output omits stream URLs and secret references.
-- External FFprobe/FFmpeg execution uses direct argument vectors and never shell interpolation.
-- Media subprocesses receive a fixed minimal environment (`LANG`, `LC_ALL`, `TZ`) rather than inheriting daemon environment variables, preventing configured camera secret variables from being propagated to those children.
-- Media-tool stderr/raw failures are discarded instead of being copied into public media/session status; status uses bounded categorical reasons.
-- Credentialed FFprobe/FFmpeg execution still fails closed before process execution.
-- A versioned protected-worker descriptor can resolve credential references in the parent process and serialize username/password material through an anonymous pipe intended for an inherited file descriptor. The protected worker surface does not put these values into command arguments or child environment variables.
-- No authenticated media worker consumes that descriptor yet, so this is a protected transfer contract—not a claim of working authenticated RTSP ingest.
-- Long-running FFmpeg session supervision is opt-in, unauthenticated-only, uses bounded network I/O timeout, and applies capped exponential restart backoff.
-- Parsed probe output and public session state are bounded before entering API status.
-- Recording planning validates camera IDs and segment duration and remains plan-only; `home-securityd` does not start an FFmpeg recorder yet.
-- Event storage is created with restrictive local permissions and corruption fails closed.
-- API responses use request IDs, `no-store`, structured errors, and `nosniff`; server timeouts and header-size limits are configured.
-- The GoreeCloud-owned Go source has no external Go module dependencies; FFmpeg/FFprobe remain optional external process foundations and are not production-pinned or accepted yet.
+- Development HTTP configuration rejects non-loopback addresses.
+- Camera RTSP/RTSPS URLs containing user-info credentials are rejected; credential fields are environment-variable references.
+- Public camera/media/session API output omits stream URLs, secret references, credentials, raw stderr, and raw network diagnostics.
+- The protected worker descriptor is versioned and strict-decoded. The parent resolves camera secrets, sends the descriptor over inherited FD3, and receives sanitized status only on FD4. Worker argv contains only `--descriptor-fd=3 --status-fd=4`; worker child environment is fixed to `LANG`, `LC_ALL`, and `TZ`.
+- The GoreeCloud-owned RTSP worker consumes credentials directly rather than reconstructing a credential-bearing FFmpeg command line.
+- Digest authentication supports MD5/MD5-sess/SHA-256/SHA-256-sess with qop=auth. Basic authentication is rejected over plaintext RTSP and accepted only when protected by RTSPS.
+- RTSPS uses ordinary Go TLS certificate verification with a TLS 1.2 minimum; certificate verification is not disabled. Cameras using untrusted/self-signed certificates will require an explicit future trust-store design rather than an insecure bypass.
+- RTSP parsing is bounded: line/header counts and sizes, response bodies/SDP, URLs, auth challenges, and transport/control values are constrained. Folded headers are rejected.
+- Session readiness is data-flow based: `media_ready` is emitted only after a negotiated video RTP packet arrives on the interleaved channel.
+- Network/media failures collapse to bounded categorical reasons. Authentication failures are nonretryable in the supervisor to avoid indefinite credential retry loops; connectivity/stall failures use capped backoff.
+- Media/tool subprocesses use direct argument vectors, no shell interpolation, fixed minimal environments, bounded timeouts, and discarded stdout/stderr where applicable.
+- Event journal permissions/durability and API request metadata hardening remain in place.
 
-These are source-level controls only; they are not target-runtime or production evidence.
+These are source/test controls, not target-runtime security acceptance. The controlled RTSP test server does not substitute for hostile-camera testing, parser fuzzing, kernel/process isolation, package provenance, or Wardveil review.
 
-## Protected credential-transfer boundary
+## Remaining security gates
 
-The descriptor contract uses an anonymous pipe so reusable camera credentials do not need to appear in `/proc/.../cmdline` or the child environment. The descriptor is size-bounded, versioned, strict-decoded, validates credential-free RTSP/RTSPS URLs, and requires username/password values as a pair.
+Before remote or production exposure the project still requires GoreeCloud Identity authentication/authorization, Wardveil integration, role separation, rate/resource-abuse controls, trusted worker artifact/path integrity, secret storage/rotation, production TLS/reverse-proxy policy, audit design, parser fuzzing, and target-camera/network testing.
 
-This reduces accidental exposure; it does not protect credentials from a privileged host administrator, kernel compromise, process-memory inspection, or an unsafe future worker implementation. A production authenticated worker must consume the inherited descriptor directly and must not reconstruct a credential-bearing FFmpeg command line.
+The worker executable setting currently validates that the configured basename is `home-security-media-worker`; production packaging must additionally establish exact artifact provenance, ownership/permissions, immutable/trusted execution path, and update integrity.
 
-## Required before remote exposure
+## Media threat model
 
-- GoreeCloud Identity authentication and authorization.
-- Role/permission model for viewing live feeds, recordings, exports, camera configuration, PTZ, retention, rules, and administration.
-- Wardveil Security integration and evidence.
-- Rate/resource-abuse controls.
-- Reverse-proxy/TLS boundary and origin policy appropriate to deployment.
-- Secure session handling and CSRF protection for browser mutations.
-- Audit/event model that avoids sensitive media/content logging.
-- Secret-storage integration and credential rotation path.
-
-## Media and inference threat model
-
-Camera streams, codecs, metadata, ONVIF responses, uploaded/exported media, and detector-model inputs are untrusted. Future implementation must isolate/bound media and detector workers, keep secrets out of logs and externally visible arguments, validate paths and model provenance, treat network cameras as potentially compromised peers, and pin/validate the exact FFmpeg/FFprobe package/build before release qualification.
-
-A non-credential stream URL can still be visible in the opt-in FFmpeg process command line. It remains private configuration and the current Development implementation assumes the local host administrator is trusted. Credential-bearing URLs remain prohibited.
+Camera streams, RTSP headers/SDP, codecs, ONVIF responses, media files, and detector inputs are untrusted. Future work must isolate/bound parser and detector workers, enforce CPU/memory/file/descriptor/network limits, validate recording/export paths, pin media dependencies, and treat network cameras as potentially compromised peers.
 
 ## Vulnerability reporting
 
-Do not place secrets, private camera URLs, recordings, household information, or exploit evidence containing private data in public issues. Use the approved GoreeCloud security reporting path when it is established for this project.
+Do not place secrets, private camera URLs, recordings, household information, or exploit evidence containing private data in public issues. Use the approved GoreeCloud security reporting path when established for this project.

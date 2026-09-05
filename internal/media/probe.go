@@ -25,6 +25,13 @@ const (
 	ReasonInvalidProbeOutput       = "invalid_probe_output"
 	ReasonSessionFailed            = "session_failed"
 	ReasonSessionExited            = "session_exited"
+	ReasonSessionStalled           = "session_stalled"
+	ReasonRTSPConnectFailed        = "rtsp_connect_failed"
+	ReasonRTSPAuthRequired         = "rtsp_auth_required"
+	ReasonRTSPAuthFailed           = "rtsp_auth_failed"
+	ReasonRTSPAuthUnsupported      = "rtsp_auth_unsupported"
+	ReasonRTSPBasicInsecure        = "rtsp_basic_insecure"
+	ReasonRTSPProtocolFailed       = "rtsp_protocol_failed"
 )
 
 var codecNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
@@ -36,13 +43,9 @@ type Metadata struct {
 	Height     int
 	FPS        float64
 }
-
-type ProbeError struct {
-	Code string
-}
+type ProbeError struct{ Code string }
 
 func (e *ProbeError) Error() string { return e.Code }
-
 func ErrorCode(err error) string {
 	if err == nil {
 		return ""
@@ -57,7 +60,6 @@ func ErrorCode(err error) string {
 type Runner interface {
 	Run(ctx context.Context, executable string, args []string) ([]byte, error)
 }
-
 type execRunner struct{}
 
 func (execRunner) Run(ctx context.Context, executable string, args []string) ([]byte, error) {
@@ -75,7 +77,6 @@ func (execRunner) Run(ctx context.Context, executable string, args []string) ([]
 type Prober interface {
 	Probe(ctx context.Context, camera config.Camera) (Metadata, error)
 }
-
 type FFProbe struct {
 	executable string
 	timeout    time.Duration
@@ -91,11 +92,9 @@ func NewFFProbe(executable string, timeout time.Duration) *FFProbe {
 	}
 	return &FFProbe{executable: executable, timeout: timeout, runner: execRunner{}}
 }
-
 func newFFProbeWithRunner(executable string, timeout time.Duration, runner Runner) *FFProbe {
 	return &FFProbe{executable: executable, timeout: timeout, runner: runner}
 }
-
 func (p *FFProbe) Probe(ctx context.Context, camera config.Camera) (Metadata, error) {
 	if err := camera.Validate(); err != nil {
 		return Metadata{}, err
@@ -177,7 +176,6 @@ func parseProbe(payload []byte) (Metadata, error) {
 	}
 	return result, nil
 }
-
 func parseRate(value string) (float64, error) {
 	if value == "" || value == "0/0" {
 		return 0, nil

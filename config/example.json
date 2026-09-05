@@ -7,6 +7,7 @@
   "media_session_rw_timeout_seconds": 15,
   "media_session_restart_min_seconds": 1,
   "media_session_restart_max_seconds": 30,
+  "media_worker_executable": "home-security-media-worker",
   "cameras": [
     {
       "id": "front-door",

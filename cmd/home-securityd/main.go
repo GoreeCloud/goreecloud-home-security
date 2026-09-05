@@ -33,79 +33,39 @@ func run() error {
 	if defaultConfig == "" {
 		defaultConfig = "./config/local.json"
 	}
-
 	configPath := flag.String("config", defaultConfig, "path to JSON configuration")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
-
 	if *showVersion {
 		fmt.Println(version)
 		return nil
 	}
-
 	cfg, err := config.Load(*configPath)
 	if err != nil {
 		return err
 	}
-
 	registry := camera.NewRegistry(cfg.Cameras)
 	journal, err := events.NewJournal(filepath.Join(cfg.DataDir, "events.jsonl"))
 	if err != nil {
 		return err
 	}
-
 	handler := api.New(registry, journal).Handler()
-	httpServer := &http.Server{
-		Addr:              cfg.ListenAddress,
-		Handler:           handler,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-		MaxHeaderBytes:    1 << 20,
-	}
-
+	httpServer := &http.Server{Addr: cfg.ListenAddress, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	prober := media.NewFFProbe(
-		"ffprobe",
-		time.Duration(cfg.MediaProbeTimeoutSeconds)*time.Second,
-	)
-	mediaManager := media.NewManager(
-		cfg.Cameras,
-		registry,
-		prober,
-		time.Duration(cfg.MediaProbeIntervalSeconds)*time.Second,
-	)
+	prober := media.NewFFProbe("ffprobe", time.Duration(cfg.MediaProbeTimeoutSeconds)*time.Second)
+	mediaManager := media.NewManager(cfg.Cameras, registry, prober, time.Duration(cfg.MediaProbeIntervalSeconds)*time.Second)
 	go mediaManager.Run(ctx)
-
 	if cfg.MediaSessionsEnabled {
-		session := media.NewFFmpegSession(
-			"ffmpeg",
-			time.Duration(cfg.MediaSessionRWTimeoutSeconds)*time.Second,
-		)
-		supervisor := media.NewSupervisor(
-			cfg.Cameras,
-			registry,
-			session,
-			time.Duration(cfg.MediaSessionRestartMinSeconds)*time.Second,
-			time.Duration(cfg.MediaSessionRestartMaxSeconds)*time.Second,
-		)
+		session := media.NewWorkerSession(cfg.MediaWorkerExecutable, os.LookupEnv, time.Duration(cfg.MediaSessionRWTimeoutSeconds)*time.Second)
+		supervisor := media.NewSupervisor(cfg.Cameras, registry, session, time.Duration(cfg.MediaSessionRestartMinSeconds)*time.Second, time.Duration(cfg.MediaSessionRestartMaxSeconds)*time.Second)
 		go supervisor.Run(ctx)
 	}
-
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info(
-			"GoreeCloud Home Security development API listening",
-			"address", cfg.ListenAddress,
-			"cameras", registry.Count(),
-			"media_sessions_enabled", cfg.MediaSessionsEnabled,
-		)
+		slog.Info("GoreeCloud Home Security development API listening", "address", cfg.ListenAddress, "cameras", registry.Count(), "media_sessions_enabled", cfg.MediaSessionsEnabled)
 		errCh <- httpServer.ListenAndServe()
 	}()
-
 	select {
 	case err := <-errCh:
 		if err == http.ErrServerClosed {

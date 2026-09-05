@@ -2,45 +2,28 @@
 
 ## Status
 
-Privacy posture: Development / incomplete. Privacy Shield integration is required but not yet accepted. This file documents requirements and current source behavior; it does not claim production Privacy Shield conformance.
-
-## Private data categories
-
-The product may process live camera video/audio, recordings and derived media, camera/device endpoints, event metadata, object/zone information, review/alert history, and optional future biometric/plate/semantic data.
+Privacy posture: Development / incomplete. Privacy Shield integration is required but not yet accepted.
 
 ## Current default behavior
 
-- Processing is local.
-- No remote telemetry path or external AI provider exists.
-- The development API is loopback-only.
-- Camera list/status responses do not expose stream URLs or credential references.
-- Camera credentials must not be embedded in stream URLs.
-- Enabled unauthenticated streams may be periodically probed by local FFprobe when installed; only bounded codec/dimension/FPS/probe state is retained in public status.
-- Long-running FFmpeg sessions are **disabled by default**. If explicitly enabled, they currently accept only unauthenticated camera definitions and copy the selected video stream to a null sink; no media is persisted by that session path.
-- Session status contains only bounded operational state, attempt/timestamp data, and categorical reasons.
-- FFprobe/FFmpeg subprocesses receive a fixed minimal environment rather than the daemon environment.
-- Credentialed external-media execution remains blocked. The new protected-worker descriptor can carry credentials over an anonymous pipe, but no authenticated media backend consumes it yet.
-- Raw media-tool stderr and camera/network failure details are not propagated to public status.
-- No face recognition, plate recognition, semantic indexing, recording execution, playback, or alert delivery exists yet.
+- Processing is local; no remote telemetry path or external AI provider exists.
+- The Development API is loopback-only and minimizes camera/media/session status.
+- Camera credentials are not embedded in stream URLs, API responses, worker command lines, or worker environment variables.
+- Protected worker descriptor v2 transfers credentials over inherited FD3; FD4 carries only sanitized worker state. This limits ordinary exposure but does not defeat privileged host/process-memory inspection.
+- Long-running media sessions remain disabled by default. When explicitly enabled, the owned worker currently validates session media flow and intentionally does not record media.
+- Digest-authenticated RTSP is supported by the owned worker; Basic credentials are refused over plaintext RTSP.
+- Raw RTSP headers, SDP, URLs, authentication material, network errors, and worker stderr are not promoted into public status.
+- Probe/session state is transient in memory. The current event journal stores only supplied metadata. The recording-plan primitive does not create media.
+- Face recognition, plate recognition, semantic indexing, re-identification, cross-camera correlation, recording execution, playback, and alerts remain unimplemented.
 
 ## Purpose limitation
 
-Current media probing and opt-in null-sink session supervision exist only to establish bounded local stream compatibility/session behavior. A future recording, indexing, biometric, plate, or AI feature requires its own purpose, access, retention, deletion, export, backup, and external-transmission review.
-
-## Sensitive intelligence defaults
-
-Face recognition, license-plate recognition, semantic embeddings, person re-identification, and cross-camera correlation must remain disabled by default until an approved privacy design and working controls exist. Enabling one capability must not silently enable another.
+Current probe and session-worker behavior exists to establish bounded local camera connectivity, authentication, and media-flow state. It does not authorize recording, biometric processing, cloud processing, or broader household surveillance purposes. Each later sensitive feature requires explicit purpose, access, retention, deletion, export, backup, and transmission review.
 
 ## Retention and deletion
 
-The current source stores event metadata supplied to the JSONL journal. Probe and session status are transient in-memory operational state. The long-running null-sink session does not intentionally store media, and the FFmpeg recording-plan primitive does not create media.
-
-A production design must separately define retention/deletion for recording segments, clips/snapshots, thumbnails, event metadata, search indexes, biometric/plate data, temporary exports, caches, and backup/recovery copies. No complete deletion claim may be made until all applicable layers have working deletion behavior and known backup limitations are represented accurately.
-
-## Export
-
-Portable export is required before production acceptance for user-selected media and appropriate Home Security-owned metadata. Exports containing private information must be access-controlled and temporary export files must have explicit cleanup behavior.
+A production design must separately implement and document retention/deletion for recording segments, clips/snapshots, thumbnails, event metadata, indexes/embeddings, biometric/plate data, temporary exports, caches, and recovery copies. No complete deletion claim is allowed until every applicable layer has working behavior and known backup limitations.
 
 ## Privacy-safe platform status
 
-Manager, Mesh, Privacy Shield, or other status consumers should receive minimized state such as service health, capability availability, counts where justified, and conformance state. They must not receive raw live frames, recordings, camera credentials, private stream URLs, face templates, plate observations, or detailed household activity merely to render status.
+Manager, Mesh, Privacy Shield, and other platform consumers should receive only minimized operational state needed for their role. Raw live frames, recordings, camera credentials, private stream URLs, biometric templates, plate observations, or detailed household activity must not be propagated merely for status presentation.

@@ -2,108 +2,42 @@
 
 ## Design principles
 
-- Original GoreeCloud application architecture.
-- Local-first processing and storage.
-- Explicit trust boundaries between camera ingest, media parsing, inference, authoritative metadata, API/UI, and platform adapters.
-- Small bounded dependencies for protocols, codecs, databases, and inference runtimes.
-- No complete third-party NVR as the permanent application layer.
-- Fail closed on malformed configuration, corrupt authoritative metadata, unknown security/privacy evidence, unsupported contract versions, and unsafe credential-transfer paths.
+- Original GoreeCloud application architecture and local-first processing.
+- Explicit trust boundaries between camera protocol/media parsing, authoritative orchestration/metadata, inference, UI/API, and platform adapters.
+- Bounded supporting dependencies rather than a complete third-party NVR application layer.
+- Fail closed on malformed configuration/protocol data, unsafe credential transfer, unknown security/privacy evidence, and unsupported contracts.
 
-## Target logical architecture
+## Current process boundary
 
 ```text
-Cameras / ONVIF devices
-        |
-        v
-+----------------------------+
-| Camera & Stream Plane      |
-| probe / protected secrets  |
-| sessions / reconnect       |
-+-------------+--------------+
-              |
-      +-------+-------+
-      |               |
-      v               v
-+-----------+    +----------------+
-| Recorder  |    | Activity Plane |
-| segments  |    | motion gating  |
-+-----+-----+    +-------+--------+
-      |                  |
-      |                  v
-      |          +------------------+
-      |          | Inference Worker |
-      |          | CPU/GPU/NPU/etc. |
-      |          +---------+--------+
-      |                    |
-      +----------+---------+
-                 v
-        +-------------------+
-        | Event / Track Core|
-        | zones / rules     |
-        +---------+---------+
-                  |
-        +---------+----------+
-        |                    |
-        v                    v
- +--------------+     +---------------+
- | Metadata DB  |     | Review/Search |
- | retention    |     | index/export  |
- +------+-------+     +-------+-------+
-        |                     |
-        +----------+----------+
-                   v
-         +--------------------+
-         | API + Glaze UI     |
-         | Identity/AuthZ     |
-         +----------+---------+
-                    |
-         +----------+-------------------------------+
-         | Platform adapters                        |
-         | Privacy Shield / Wardveil / Everkeep    |
-         | Mesh / Manager / Notify / Identity      |
-         +------------------------------------------+
+home-securityd
+  |-- config + secret references + event journal + API
+  |-- FFprobe (bounded unauthenticated inspection)
+  |
+  +-- protected descriptor FD3 ----------+
+  |                                       v
+  |                           home-security-media-worker
+  |                           RTSP/RTSPS + auth + RTP flow
+  |                                       |
+  +<-- sanitized status FD4 --------------+
+
+Future bounded outputs -> recorder / live view / activity / detector / event core
 ```
 
-## Current implemented subset
+`home-securityd` remains authoritative for configuration, policy, event/recording metadata, APIs, and orchestration. The owned media worker is a replaceable failure/resource domain and is never authoritative for household authorization, policy, retention, or review state.
 
-The current Development source implements configuration, sanitized camera/session state, event journal, loopback read-only API, and bounded media-plane primitives:
+## Implemented camera/session path
 
-- periodic FFprobe-based RTSP/RTSPS connectivity/codec inspection for unauthenticated stream definitions;
-- a versioned anonymous-pipe protected-worker descriptor contract for future authenticated media workers;
-- a fixed minimal media-child environment that prevents daemon environment inheritance;
-- opt-in long-running FFmpeg process supervision for unauthenticated streams, with bounded I/O timeout and capped exponential restart backoff;
-- sanitized transient session status and aggregate status counts;
-- a validated shell-free FFmpeg segment-recording command plan that is not executed.
+The parent resolves secret references and passes protected descriptor v2 over FD3. The worker performs RTSP/RTSPS DESCRIBE/SETUP/PLAY and emits `media_ready` over FD4 only after receiving video RTP on the negotiated TCP-interleaved channel. Digest auth is supported; Basic is RTSPS-only. TLS verification is not bypassed. Strict parser/resource bounds and sanitized categorical errors limit exposure of untrusted camera input.
 
-The session supervisor currently stream-copies video to a null sink. It is a process/session supervision foundation, not a recorder, live-view service, detector, or proof of real-camera sustained media flow.
+Supervisor state is transient and uses capped restart backoff. Authentication/policy failures stop retrying; connectivity/stall failures may retry. The current controlled integration fixture proves the protocol path against a local test server, not against physical camera hardware.
 
-## Current credential boundary
+## Planned downstream architecture
 
-`home-securityd` owns camera configuration and secret references. Credential material can be resolved into a versioned worker descriptor and transferred through an anonymous pipe intended for inherited file descriptor 3. External FFprobe/FFmpeg adapters still reject credentialed cameras, because no protected authenticated backend consumes that descriptor yet.
+The media worker will later feed separately bounded recorder, live-view/restream, and activity-analysis paths. Motion gating will reduce detector workload; detector workers remain replaceable CPU/GPU/NPU backends. Detection/tracking feeds zones/rules and the authoritative event core, which then drives review, export, and minimized alert/platform events.
 
-Future authenticated workers must read the descriptor directly after process creation and use a media API/library path that does not reconstruct credential-bearing command arguments. Worker crashes/restarts must not make the worker authoritative for household policy, authorization, event metadata, or retention.
+Recorder media and metadata must remain separately manageable. The existing JSONL event journal is a Development foundation, not the final transactional metadata database. No recording segments/indexes are created today.
 
-## Planned process boundaries
+## Platform boundary
 
-- `home-securityd` — authoritative configuration, event/recording metadata, APIs, orchestration, and policy.
-- GoreeCloud media workers — isolated/supervised ingest, decode, remux/segment, and live-output workers using bounded media foundations.
-- Detector workers — versioned local inference interface, replaceable by accelerator backend.
-- Glaze UI client — authorized Home Security UX.
-
-## Event pipeline direction
-
-1. Camera source is discovered/configured and probed.
-2. Protected credentials are transferred to an authenticated worker when needed.
-3. Supervised ingest establishes and maintains media flow.
-4. Recorder and activity analysis consume bounded stream outputs.
-5. Motion gating, detector, tracker, zones/rules, event core, review index, and alert engine process only the minimum required data.
-
-Steps 1 and part of 3 have Development source foundations. Step 2 has only the protected transfer contract; no authenticated worker exists. Recorder/activity/detection/review/alert stages remain planned.
-
-## Storage direction
-
-Recording media and metadata must remain separately manageable. The current JSONL event journal is a Development foundation, not the final metadata database. The recording plan reserves camera-scoped paths below `<data_dir>/recordings/<camera-id>/...`, but no recording files or indexes are created yet.
-
-## Interoperability
-
-Initial protocols are RTSP/RTSPS and ONVIF. Optional MQTT/Home Assistant adapters may be added later, but core operation must not require Home Assistant or another external control plane.
+GoreeCloud Identity, Wardveil Security, Privacy Shield, Everkeep, Mesh, Manager, and Glaze UI remain required/applicable and unaccepted. The loopback-only API and Development/nonconformant lifecycle remain in force until substantive integrations and exact evidence exist.

@@ -2,69 +2,61 @@
 
 ## Status
 
-Development / source-validated only. The current media plane now contains bounded probe, protected credential-transfer, and opt-in supervised session primitives. It does **not** claim authenticated-camera ingest, recorder execution, real-camera interoperability, or production FFmpeg acceptance.
+Development / source-and-controlled-integration validated. The media plane contains bounded probing, protected credential transfer, a GoreeCloud-owned authenticated RTSP/RTSPS session worker, supervision/backoff, and plan-only recording. It does **not** establish exact real-camera interoperability, working NVR recording, or production acceptance.
 
-## Supporting dependency boundary
+## Protected worker contract
 
-GoreeCloud Home Security remains the application authority. FFmpeg/FFprobe are bounded supporting media foundations for protocol probing and Development session supervision, with future roles in remuxing, segmentation, decode, and transcode work. They do not own camera policy, authorization, event semantics, retention, review state, or GoreeCloud platform integration.
+The authenticated media boundary uses descriptor schema version `2`:
 
-No production FFmpeg package/version, container digest, hardware-acceleration build, or distribution profile has been approved or pinned yet.
+- parent resolves configured camera username/password references;
+- strict descriptor travels over inherited `--descriptor-fd=3`;
+- worker emits only sanitized events over `--status-fd=4`;
+- worker argv never contains a camera URL, username, or password;
+- worker environment is fixed to `LANG=C`, `LC_ALL=C`, and `TZ=UTC`;
+- descriptor contains a bounded session read/stall timeout and is strict size/field validated.
 
-## Implemented probe path
+This reduces ordinary local secret exposure but is not protection against privileged host/process-memory inspection. Production packaging must additionally trust the exact worker executable and its path/integrity.
 
-For each enabled camera, the daemon periodically asks the bounded FFprobe adapter to inspect an RTSP/RTSPS stream. The adapter invokes `ffprobe` without a shell, uses a deadline, discards stderr, strict-parses bounded JSON, and retains only sanitized codec/dimension/frame-rate/status data. Credentialed camera definitions still fail closed with `credentialed_probe_blocked` before FFprobe starts.
+## GoreeCloud-owned RTSP worker
 
-FFprobe also receives a fixed minimal environment rather than the daemon environment, so configured camera credential variables are not inherited by the child process.
+`home-security-media-worker` consumes the descriptor directly and implements the current session protocol without reconstructing credential-bearing media-tool arguments. It performs:
 
-## Protected credential-transfer contract
+1. RTSP or RTSPS TCP connection.
+2. `DESCRIBE` with supported authentication challenge handling.
+3. Bounded SDP parsing and first video-track control selection.
+4. `SETUP` using `RTP/AVP/TCP;unicast;interleaved=0-1` and validation of the returned interleaved video channel.
+5. `PLAY`.
+6. Interleaved RTP/RTCP draining and bounded media-flow stall detection.
+7. `media_ready` on FD4 only after the first packet on the negotiated video RTP channel.
 
-The source now implements a protected-worker descriptor contract for the future authenticated media process boundary:
+Supported authentication is Digest MD5, MD5-sess, SHA-256, and SHA-256-sess with `qop=auth`. Basic authentication is allowed only when transport is RTSPS. Plain RTSP + Basic fails closed as `rtsp_basic_insecure`.
 
-- schema version `1`;
-- camera ID and credential-free RTSP/RTSPS URL validation;
-- username/password resolution from configured environment-variable references in the parent process;
-- fail-closed `credential_unavailable` behavior when either secret cannot be resolved;
-- strict descriptor decoding with a 64 KiB maximum payload;
-- an anonymous pipe transport primitive intended to become inherited descriptor file descriptor `3`;
-- fixed worker arguments containing only `--descriptor-fd=3`;
-- a fixed minimal child environment (`LANG=C`, `LC_ALL=C`, `TZ=UTC`) rather than inherited application secrets.
+RTSPS uses normal certificate/hostname verification and TLS >=1.2. There is deliberately no `InsecureSkipVerify` path. A private-CA/self-signed camera therefore needs a future explicit trust-store design.
 
-This keeps reusable credentials off the intended worker command line and environment. It does **not** make credentials inaccessible to privileged host inspection, and it is not yet connected to an authenticated RTSP backend. The current FFprobe/FFmpeg adapters therefore continue to reject credentialed cameras.
+RTSP parsing is bounded: line/header/body counts and sizes, SDP/control URLs, transport/session/auth challenge values, and descriptor/status payloads are constrained. Folded headers fail closed. Raw protocol/network errors are converted to categorical session reasons.
 
-A future authenticated worker must consume this descriptor directly through a media API/library path and must not reconstruct a credential-bearing FFmpeg command line.
+## Supervision semantics
 
-## Opt-in long-running session supervision
+`media_sessions_enabled` remains `false` by default. When enabled, each configured camera is supervised with capped exponential backoff. Credential resolution/authentication/policy failures are blocked without an automatic retry loop; connectivity/session-stall failures may retry. Session `running` now means video RTP data has arrived, not merely that a child process started.
 
-`media_sessions_enabled` defaults to `false`. When explicitly enabled, each enabled **unauthenticated** camera can run a supervised FFmpeg session that:
+The controlled integration test uses a local RTSP server and verifies Digest-authenticated DESCRIBE/SETUP/PLAY through first interleaved RTP readiness. This is not physical-camera or long-duration evidence.
 
-- invokes FFmpeg directly without a shell;
-- receives the same fixed minimal child environment;
-- selects the first video stream;
-- uses stream copy rather than decode;
-- sends output to a null sink, so this path intentionally does not persist media;
-- applies a bounded `rw_timeout` value;
-- reports only `idle`, `starting`, `running`, `backoff`, `blocked`, `stopped`, or `disabled` state plus bounded attempt/timestamp/reason metadata;
-- uses capped exponential restart backoff when the process exits/fails;
-- discards FFmpeg stdout/stderr rather than promoting private camera/network diagnostics into API state.
+## FFprobe and FFmpeg boundary
 
-`running` means the local FFmpeg process successfully started. It is not proof that media is continuously flowing, compatible with recording/detection, or validated against target hardware. Exact real-camera stall/progress monitoring remains future work.
+FFprobe remains a bounded optional probe adapter for unauthenticated definitions. FFmpeg remains a bounded foundation for the plan-only future recording command. Credentialed long-running sessions no longer require constructing a credential-bearing FFmpeg argv.
 
-A non-credential stream URL is still present in the Development FFmpeg process argument vector. It is private configuration and this path assumes a trusted local host administrator. Credential-bearing URLs remain prohibited.
+No FFmpeg/FFprobe production package version, container digest, hardware-acceleration build, or distribution profile is approved/pinned yet.
 
-## Recording-plan primitive
+## Recording boundary
 
-The recording-plan builder still validates enabled state, path-safe camera IDs, bounded segment duration, credentialed-camera blocking, argument-vector execution, camera-scoped paths under `<data_dir>/recordings/<camera-id>/...`, and stream-copy segmentation.
+The recording-plan builder validates camera-scoped paths and segment duration, but `home-securityd` does not execute it. There is no crash-safe segment index, retention deletion, storage-pressure policy, playback API, or unattended NVR recording yet.
 
-The plan is **not executed by `home-securityd`**. No segment index, retention deletion, storage-pressure handling, recording API, or playback exists yet.
+## Next milestones
 
-## Next media milestones
-
-1. Implement a GoreeCloud-owned authenticated media worker that consumes the protected descriptor directly without exposing credentials in argv/environment.
-2. Add real-camera sustained-flow/progress monitoring and reconnect/offline/recovery event semantics; keep tamper detection separate from ordinary connectivity failure.
-3. Execute segment writers with crash-safe segment indexing.
-4. Enforce explicit retention and storage-pressure policy before unattended recording is enabled.
-5. Add ONVIF discovery and capability inspection.
-6. Add low-latency local live view/restreaming.
-7. Add motion/activity gating, local detector workers, object tracking, zones/rules, and hardware-acceleration discovery.
-
-Every milestone remains subject to GoreeCloud Identity, Wardveil Security, Privacy Shield, Everkeep, Mesh, Manager, Glaze UI, recovery, and release evidence gates where applicable.
+1. Exact physical-camera sustained-flow/progress/stall/reconnect and RTSPS trust validation.
+2. Persisted camera offline/recovery event transitions; tamper remains a distinct signal.
+3. Recorder execution with crash-safe segment indexing.
+4. Retention/storage-pressure enforcement before unattended recording.
+5. ONVIF discovery and capabilities.
+6. Local live view/restreaming.
+7. Motion gating, local detector workers, tracking, zones/rules, and hardware acceleration.

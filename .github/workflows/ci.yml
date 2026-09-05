@@ -53,8 +53,10 @@ jobs:
       - name: Race test
         run: go test -race ./...
 
-      - name: Build daemon
-        run: go build ./cmd/home-securityd
+      - name: Build daemon and media worker
+        run: |
+          go build ./cmd/home-securityd
+          go build ./cmd/home-security-media-worker
 
       - name: Check governed repository foundation
         shell: bash
@@ -73,9 +75,15 @@ jobs:
             CHANGELOG.md \
             docs/ARCHITECTURE.md \
             docs/MEDIA-ENGINE.md \
+            cmd/home-security-media-worker/main.go \
             internal/media/probe.go \
             internal/media/manager.go \
             internal/media/descriptor.go \
+            internal/media/worker_protocol.go \
+            internal/media/rtsp_worker.go \
+            internal/media/rtsp_request.go \
+            internal/media/rtsp_auth.go \
+            internal/media/rtsp_sdp.go \
             internal/media/session.go \
             internal/media/supervisor.go \
             internal/media/recording.go \
@@ -87,6 +95,8 @@ jobs:
           grep -q 'lifecycle: development' goreecloud.platform.yaml
           grep -q 'status: nonconformant' goreecloud.platform.yaml
           grep -q 'media_sessions_enabled' config/example.json
+          grep -q 'home-security-media-worker' config/example.json
           grep -q 'descriptor-fd=3' docs/MEDIA-ENGINE.md
-          grep -q 'credentialed_probe_blocked' docs/MEDIA-ENGINE.md
+          grep -q 'status-fd=4' docs/MEDIA-ENGINE.md
+          grep -q 'Digest' docs/MEDIA-ENGINE.md
           grep -q 'GoreeCloud Home Security' README.md

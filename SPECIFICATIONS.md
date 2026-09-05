@@ -13,69 +13,27 @@
 
 This document separates verified current implementation from planned product direction. Planned capabilities are not implementation claims.
 
-## 1. Role and purpose
+## 1. Role and architecture rule
 
-GoreeCloud Home Security is GoreeCloud's first-party local camera, NVR, event-detection, review, and home-security intelligence application. It must remain an independently maintainable GoreeCloud product rather than a Frigate fork or another complete-product NVR wrapped in GoreeCloud branding.
+GoreeCloud Home Security is GoreeCloud's first-party local camera/NVR, event-detection, review, and home-security intelligence application. It must remain independently maintainable rather than a Frigate fork or another complete NVR wrapped in GoreeCloud branding. Narrow codec/protocol/inference/database foundations may be used, but GoreeCloud owns policy, authorization, event semantics, retention, review state, and platform integration.
 
-Target users are authorized household members and administrators. Future authorization must distinguish ordinary viewers, security reviewers, household administrators, and service identities when their permissions differ.
+## 2. Current Development implementation
 
-## 2. Native architecture and dependency rule
+The current source/test-validated slice implements strict camera/config validation, loopback-only APIs, sanitized camera/media/session state, a durable event journal, bounded FFprobe inspection, and a GoreeCloud-owned RTSP/RTSPS session worker.
 
-The application is original GoreeCloud-owned software. Narrow foundations may include mature codecs, FFmpeg/FFprobe-class media tooling, ONVIF/RTSP protocol libraries, databases, inference runtimes, and hardware-acceleration APIs when independent reimplementation would increase risk or reduce interoperability. Those components remain bounded dependencies; they do not own Home Security policy, authorization, event semantics, retention, review state, or GoreeCloud platform integration.
+The protected worker contract is schema version 2. The daemon resolves camera credential references and transfers camera ID, credential-free stream URL, credentials, and bounded worker timeout over inherited FD3. The worker receives only descriptor/status FD numbers in argv, a fixed minimal environment, and emits sanitized `media_ready` state over FD4.
 
-## 3. Current Development implementation
+The owned worker performs RTSP DESCRIBE, video-track SDP selection, SETUP with TCP interleaving, PLAY, and interleaved RTP/RTCP handling. Session `running` is published only after the first negotiated video RTP packet is received. Read deadlines provide a bounded media-stall signal.
 
-The current source-validated Development slice implements:
+Authentication currently supports Digest MD5, MD5-sess, SHA-256, and SHA-256-sess with `qop=auth`. Basic is allowed only over RTSPS and fails closed over plaintext RTSP. RTSPS uses normal certificate verification and TLS 1.2 or newer; there is no insecure certificate bypass.
 
-1. Strict JSON configuration with unknown-field rejection and bounded media probe/session settings.
-2. Camera IDs, names, enabled state, RTSP/RTSPS URLs, and environment-variable credential references.
-3. Rejection of credentials embedded in stream URLs and non-loopback API exposure.
-4. Sanitized camera records that never disclose stream URLs or secret-reference names.
-5. Periodic direct-process `ffprobe` inspection for enabled **unauthenticated** RTSP/RTSPS streams.
-6. Bounded probe deadlines and sanitized media state: state, video/audio codec, dimensions, FPS, last-probe time, and categorical reason only.
-7. A versioned protected-worker descriptor contract that resolves configured username/password references in the parent process and transfers the descriptor through an anonymous pipe intended for inherited file descriptor `3`.
-8. Protected-worker arguments and environment that do not contain resolved credentials; media subprocesses receive a fixed minimal environment rather than inheriting daemon environment variables.
-9. Fail-closed `credentialed_probe_blocked` behavior for current FFprobe/FFmpeg adapters. The protected descriptor is not yet consumed by an authenticated media backend.
-10. An opt-in long-running FFmpeg session supervisor for **unauthenticated** streams with bounded network I/O timeout, capped exponential restart backoff, and sanitized session states. Sessions are disabled by default and stream-copy video to a null sink.
-11. A shell-free FFmpeg recording-plan primitive with path-safe camera scoping and bounded segment duration. The daemon does not execute the plan.
-12. A local `0600` JSONL event journal with `fsync` append durability and fail-closed malformed-record reads.
-13. Read-only health, readiness, status, camera, and event APIs with request IDs, `no-store`, `nosniff`, structured errors, bounded event pagination, and aggregate sanitized media/session counts.
-14. Unit tests, Go race tests, formatting, vet, build, and repository-governance validation.
+RTSP responses are strictly bounded and malformed/folded headers fail closed. Failures are projected as categorical reasons rather than raw camera/network diagnostics. Authentication failures are nonretryable; connectivity/session-stall failures are eligible for capped supervisor backoff.
 
-This is not a working NVR release. It does not establish protected authenticated-camera compatibility, real-camera sustained-flow evidence, recording execution, retention, playback/live view, motion/object detection, or production acceptance.
+A controlled local RTSP integration test verifies a Digest challenge, authenticated DESCRIBE/SETUP/PLAY, and first interleaved RTP readiness while ensuring the password is not placed in request URIs or ordinary process surfaces. **No exact physical-camera sustained-ingest or target-runtime evidence exists yet.**
 
-## 4. Camera and media requirements
+FFmpeg/FFprobe remain bounded supporting dependencies for probing and a plan-only future recording path. The long-running authenticated session path is now GoreeCloud-owned rather than a credential-bearing FFmpeg process. Recorder execution is not implemented.
 
-### Current
-
-- Manual validated camera configuration.
-- RTSP/RTSPS stream probing for unauthenticated streams.
-- Sanitized media-health projection.
-- Versioned protected credential-transfer descriptor over anonymous pipe.
-- Credentialed FFprobe/FFmpeg execution blocked until an authenticated backend consumes that descriptor.
-- Opt-in supervised long-running unauthenticated FFmpeg sessions with bounded I/O timeout and restart backoff.
-- Sanitized session state projection.
-- FFmpeg segment command planning only.
-
-### Planned
-
-- GoreeCloud-owned authenticated RTSP/RTSPS worker that consumes protected credentials without reconstructing a credential-bearing process command line.
-- Exact real-camera sustained-flow/progress monitoring, reconnect/offline/recovery events, and clock/stream diagnostics.
-- Tamper detection as a separate signal from ordinary connectivity failure.
-- ONVIF discovery and device capability inspection.
-- Multiple streams per camera for live view, recording, and detection roles.
-- Low-latency local live view/restreaming and optional hardware decode.
-- Crash-safe segment writer execution and recording indexes.
-- Continuous, motion, and event/object-aware recording; pre/post-roll; clip/snapshot extraction.
-- Explicit retention by age, class, camera, protected state, and storage pressure before unattended recording is enabled.
-
-## 5. Detection, review, and automation requirements
-
-Planned capabilities include motion/activity gating, pluggable local object detectors, CPU/GPU/NPU/accelerator discovery, versioned detector contracts, tracking, zones, masks, dwell and line-crossing rules, review queue/timeline, filters, thumbnails, portable exports, rule-based alerts, GoreeCloud Notify, Mesh events, and optional MQTT/Home Assistant interoperability through bounded adapters.
-
-Face recognition, license-plate recognition, semantic embeddings/search, person re-identification, and cross-camera correlation are privacy-sensitive. They remain disabled by default and unimplemented until explicit purpose, access, retention, deletion, export, and evidence boundaries exist. External AI services must not receive private camera media without separate explicit approval.
-
-## 6. API and data boundaries
+## 3. Current API/data boundary
 
 Current endpoints:
 
@@ -85,58 +43,35 @@ Current endpoints:
 - `GET /api/v1/cameras`
 - `GET /api/v1/events?limit=N`
 
-Status exposes aggregate sanitized media and session counts. Camera responses may expose bounded media and session state, but not stream URLs, credentials, secret references, raw media-tool diagnostics, or process stderr.
+Responses expose bounded operational state only. Stream URLs, credential references/values, worker descriptors, raw RTSP messages, and raw media-tool diagnostics are excluded.
 
-Session `running` indicates that the local supervised FFmpeg process started; it is not a claim that frames are continuously flowing. Current session status is transient in-memory operational state.
+## 4. Next camera/media requirements
 
-Future mutations and private-media APIs require GoreeCloud Identity authentication/authorization, structured errors, bounded pagination/filtering, rate/resource controls, timeouts, idempotency where retry matters, and versioned deprecation rules.
+1. Validate sustained flow, stall/recovery, reconnect, Digest variants, RTSPS trust behavior, and resource bounds against exact physical camera/runtime candidates.
+2. Persist offline/recovery event transitions while keeping tamper detection a separate, evidence-backed signal.
+3. Execute recorder workers with crash-safe segment indexing and explicit retention/storage-pressure enforcement before unattended recording.
+4. Add ONVIF discovery and capability inspection.
+5. Add managed local live view/restreaming and multi-stream roles.
+6. Add motion gating, pluggable local detection/tracking, zones/rules, review/timeline/export, and alerts.
 
-## 7. Privacy requirements
+## 5. Privacy/security requirements
 
-- Local-first processing and no remote telemetry by default.
-- Camera credentials remain outside ordinary source and portable configuration.
-- Reusable camera credentials must not be exposed in media-process command arguments, inherited child environments, logs, API payloads, or diagnostics.
-- Public/status APIs must minimize device/network/media detail.
-- Long-running media sessions remain disabled by default until explicitly enabled.
-- Current opt-in session workers do not intentionally persist media.
-- Recording/metadata retention must be explicit; deletion/export claims require actual implemented mechanisms.
-- Privacy Shield runtime integration and acceptance remain required and currently blocked.
+Processing remains local-first and minimized. Reusable credentials must stay out of URLs, logs, API payloads, argv, and child environment variables. Remote exposure remains prohibited until GoreeCloud Identity and Wardveil create an accepted boundary. Privacy-sensitive face/plate/semantic/re-identification/cross-camera functions remain disabled by default and unimplemented pending separate review.
 
-## 8. Security requirements
+Production packaging must establish trusted worker artifact/path integrity. RTSPS trust for self-signed/private-CA cameras requires an explicit trust-store mechanism rather than disabling certificate verification. Camera protocol/media input remains untrusted and requires parser fuzzing and resource/isolation tests before production acceptance.
 
-- API exposure remains loopback-only until GoreeCloud Identity and Wardveil Security establish an accepted access boundary.
-- External media commands use direct argument vectors rather than shell interpolation.
-- Media children receive a fixed minimal environment.
-- Protected authenticated workers must consume credentials through the inherited descriptor channel or a stronger accepted mechanism and must not reconstruct credential-bearing process command lines.
-- Camera media and metadata are untrusted inputs; parser/worker CPU, memory, GPU/NPU, process, file, descriptor, network, and queue usage must be bounded.
-- Recording/export paths must prevent traversal across approved roots.
-- FFmpeg/FFprobe must be pinned, reviewed, and target-runtime validated before release qualification.
-- Administrative and ordinary viewing permissions must remain distinct.
+## 6. Storage, recovery, and portability
 
-## 9. Integral platform systems
+The JSONL journal is a Development foundation, not the final metadata database. Raw media and metadata must remain separately manageable. Recorder media is not yet created. Before production acceptance, Home Security requires explicit retention/deletion policy, authorized portable export, Everkeep backup/restore design, clean-target restore tests, migration/rollback documentation, and secret-recovery boundaries.
 
-All seven systems are applicable and currently incomplete/unaccepted:
+## 7. Integral platform systems
 
-- GoreeCloud Manager — operational status/visibility.
-- Privacy Shield — privacy controls and evidence.
-- Wardveil Security — security/protection evidence.
-- Everkeep — backup, restore, recovery, portability, rollback evidence.
-- Glaze UI — required user interface contract.
-- GoreeCloud Mesh — registration, relationships, events, policy/coordination.
-- GoreeCloud Identity — accounts, sessions, authentication, authorization, household roles, service identities.
+GoreeCloud Manager, Privacy Shield, Wardveil Security, Everkeep, Glaze UI, GoreeCloud Mesh, and GoreeCloud Identity are all applicable and currently incomplete/unaccepted. No Stable or production claim is allowed while required integrations/evidence remain incomplete.
 
-No Stable claim is allowed while applicable required integrations remain incomplete or unverified.
+## 8. Testing and release gates
 
-## 10. Deployment, recovery, and portability
+Current automated validation covers configuration, credential transfer, worker protocol, controlled Digest-auth RTSP handshake/RTP readiness, Basic-over-RTSP rejection, SDP validation, supervisor retry policy, race detection, API minimization, journal durability, and buildability of both binaries.
 
-Primary target is self-hosted Linux, initially as a native service and later as reproducible containerized deployment where appropriate. Hardware acceleration is optional and capability-discovered. The current server is loopback-only, and no production FFmpeg/FFprobe package/build is selected or pinned.
+Future acceptance requires exact physical-camera/runtime tests, sustained-flow/reconnect/stall matrices, parser fuzzing, TLS/private-CA behavior, process/resource isolation, recorder integrity/retention/deletion, authorization, export/restore, accelerator tests, Glaze UI tests, exact artifact provenance, and platform-system evidence.
 
-Before production acceptance, Home Security requires configuration recovery without embedded camera secrets, metadata backup/restore, an explicit policy for bulk-video backup or exclusion, Everkeep integration, portable authorized media/metadata export, restore validation on a clean isolated target, and rollback behavior for the exact candidate.
-
-## 11. Testing and release gates
-
-Current tests cover configuration safety/defaults, loopback policy, sanitized camera/session state, media-status validation, FFprobe parsing, credentialed-process blocking, protected descriptor validation/pipe round-trip/environment minimization, session plan/process classification, supervisor lifecycle/backoff, recording-plan safety, journal durability/permissions/corruption handling, API privacy/error behavior, and Go race detection.
-
-Future acceptance must add real camera/media fixtures, parser fuzzing, authenticated worker integration tests, sustained-flow/stall/reconnect tests, recorder/segment integrity and retention/deletion tests, detector/resource-abuse tests, authorization tests, export/restore tests, accelerator matrix tests, Glaze UI tests, exact artifact provenance, and target-environment validation.
-
-Current release state is Development / unreleased / nonconformant. Release Candidate or Stable requires applicable lifecycle, CI, exact-candidate security/privacy/recovery evidence, platform-system acceptance, migration/rollback documentation, artifact provenance, and target-runtime validation. Source availability or passing unit tests alone are insufficient.
+Current release state remains Development / unreleased / nonconformant.

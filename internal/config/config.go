@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -19,6 +20,7 @@ const (
 	DefaultMediaSessionRWTimeoutSeconds  = 15
 	DefaultMediaSessionRestartMinSeconds = 1
 	DefaultMediaSessionRestartMaxSeconds = 30
+	DefaultMediaWorkerExecutable         = "home-security-media-worker"
 )
 
 var (
@@ -35,6 +37,7 @@ type Config struct {
 	MediaSessionRWTimeoutSeconds  int      `json:"media_session_rw_timeout_seconds,omitempty"`
 	MediaSessionRestartMinSeconds int      `json:"media_session_restart_min_seconds,omitempty"`
 	MediaSessionRestartMaxSeconds int      `json:"media_session_restart_max_seconds,omitempty"`
+	MediaWorkerExecutable         string   `json:"media_worker_executable,omitempty"`
 	Cameras                       []Camera `json:"cameras"`
 }
 
@@ -53,10 +56,8 @@ func Load(path string) (Config, error) {
 		return Config{}, fmt.Errorf("open config: %w", err)
 	}
 	defer f.Close()
-
 	dec := json.NewDecoder(f)
 	dec.DisallowUnknownFields()
-
 	var cfg Config
 	if err := dec.Decode(&cfg); err != nil {
 		return Config{}, fmt.Errorf("decode config: %w", err)
@@ -64,7 +65,6 @@ func Load(path string) (Config, error) {
 	if err := ensureEOF(dec); err != nil {
 		return Config{}, err
 	}
-
 	cfg.applyDefaults()
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -105,6 +105,9 @@ func (c *Config) applyDefaults() {
 	if c.MediaSessionRestartMaxSeconds == 0 {
 		c.MediaSessionRestartMaxSeconds = DefaultMediaSessionRestartMaxSeconds
 	}
+	if strings.TrimSpace(c.MediaWorkerExecutable) == "" {
+		c.MediaWorkerExecutable = DefaultMediaWorkerExecutable
+	}
 }
 
 func (c Config) Validate() error {
@@ -129,7 +132,12 @@ func (c Config) Validate() error {
 	if c.MediaSessionRestartMaxSeconds < c.MediaSessionRestartMinSeconds || c.MediaSessionRestartMaxSeconds > 300 {
 		return errors.New("media_session_restart_max_seconds must be between media_session_restart_min_seconds and 300")
 	}
-
+	if c.MediaWorkerExecutable != "" && (len(c.MediaWorkerExecutable) > 4096 || strings.ContainsRune(c.MediaWorkerExecutable, '\x00') || filepath.Base(c.MediaWorkerExecutable) != DefaultMediaWorkerExecutable) {
+		return errors.New("media_worker_executable must name the GoreeCloud home-security-media-worker binary")
+	}
+	if c.MediaSessionsEnabled && strings.TrimSpace(c.MediaWorkerExecutable) == "" {
+		return errors.New("media_worker_executable is required when media sessions are enabled")
+	}
 	seen := make(map[string]struct{}, len(c.Cameras))
 	for i, camera := range c.Cameras {
 		if err := camera.Validate(); err != nil {
@@ -168,7 +176,6 @@ func (c Camera) Validate() error {
 	if strings.TrimSpace(c.Name) == "" {
 		return errors.New("name must not be empty")
 	}
-
 	u, err := url.Parse(c.StreamURL)
 	if err != nil {
 		return fmt.Errorf("stream_url: %w", err)
@@ -182,7 +189,6 @@ func (c Camera) Validate() error {
 	if u.User != nil {
 		return errors.New("stream_url must not contain credentials; use username_env/password_env secret references")
 	}
-
 	if (c.UsernameEnv == "") != (c.PasswordEnv == "") {
 		return errors.New("username_env and password_env must be provided together")
 	}

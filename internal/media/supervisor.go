@@ -10,12 +10,11 @@ import (
 )
 
 type Supervisor struct {
-	cameras    []config.Camera
-	registry   *camera.Registry
-	session    Session
-	minBackoff time.Duration
-	maxBackoff time.Duration
-	now        func() time.Time
+	cameras                []config.Camera
+	registry               *camera.Registry
+	session                Session
+	minBackoff, maxBackoff time.Duration
+	now                    func() time.Time
 }
 
 func NewSupervisor(cameras []config.Camera, registry *camera.Registry, session Session, minBackoff, maxBackoff time.Duration) *Supervisor {
@@ -30,7 +29,6 @@ func NewSupervisor(cameras []config.Camera, registry *camera.Registry, session S
 	}
 	return &Supervisor{cameras: append([]config.Camera(nil), cameras...), registry: registry, session: session, minBackoff: minBackoff, maxBackoff: maxBackoff, now: time.Now}
 }
-
 func (s *Supervisor) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	for _, cfg := range s.cameras {
@@ -44,7 +42,6 @@ func (s *Supervisor) Run(ctx context.Context) {
 	}
 	wg.Wait()
 }
-
 func (s *Supervisor) runCamera(ctx context.Context, cfg config.Camera) {
 	attempt := 0
 	for {
@@ -66,7 +63,7 @@ func (s *Supervisor) runCamera(ctx context.Context, cfg config.Camera) {
 			return
 		}
 		reason := ErrorCode(err)
-		if reason == ReasonCredentialedProbeBlocked || reason == ReasonCredentialUnavailable {
+		if isNonRetryableSessionReason(reason) {
 			exitAt := s.now().UTC()
 			_ = s.registry.UpdateSession(cfg.ID, camera.SessionStatus{State: camera.SessionBlocked, Attempt: attempt, LastStartAt: &startAt, LastExitAt: &exitAt, Reason: reason})
 			return
@@ -94,12 +91,18 @@ func (s *Supervisor) runCamera(ctx context.Context, cfg config.Camera) {
 		}
 	}
 }
-
-func (s *Supervisor) publishStopped(cameraID string, attempt int) {
-	now := s.now().UTC()
-	_ = s.registry.UpdateSession(cameraID, camera.SessionStatus{State: camera.SessionStopped, Attempt: attempt, LastExitAt: &now})
+func isNonRetryableSessionReason(reason string) bool {
+	switch reason {
+	case ReasonCredentialedProbeBlocked, ReasonCredentialUnavailable, ReasonRTSPAuthRequired, ReasonRTSPAuthFailed, ReasonRTSPAuthUnsupported, ReasonRTSPBasicInsecure:
+		return true
+	default:
+		return false
+	}
 }
-
+func (s *Supervisor) publishStopped(id string, attempt int) {
+	now := s.now().UTC()
+	_ = s.registry.UpdateSession(id, camera.SessionStatus{State: camera.SessionStopped, Attempt: attempt, LastExitAt: &now})
+}
 func backoffForAttempt(attempt int, min, max time.Duration) time.Duration {
 	if attempt <= 1 {
 		return min
