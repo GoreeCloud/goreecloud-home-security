@@ -50,6 +50,9 @@ jobs:
       - name: Test
         run: go test ./...
 
+      - name: Race test
+        run: go test -race ./...
+
       - name: Build daemon
         run: go build ./cmd/home-securityd
 
@@ -72,6 +75,9 @@ jobs:
             docs/MEDIA-ENGINE.md \
             internal/media/probe.go \
             internal/media/manager.go \
+            internal/media/descriptor.go \
+            internal/media/session.go \
+            internal/media/supervisor.go \
             internal/media/recording.go \
             goreecloud.platform.yaml; do
             test -s "$file"
@@ -80,5 +86,7 @@ jobs:
           grep -q 'id: goreecloud-home-security' goreecloud.platform.yaml
           grep -q 'lifecycle: development' goreecloud.platform.yaml
           grep -q 'status: nonconformant' goreecloud.platform.yaml
+          grep -q 'media_sessions_enabled' config/example.json
+          grep -q 'descriptor-fd=3' docs/MEDIA-ENGINE.md
           grep -q 'credentialed_probe_blocked' docs/MEDIA-ENGINE.md
           grep -q 'GoreeCloud Home Security' README.md

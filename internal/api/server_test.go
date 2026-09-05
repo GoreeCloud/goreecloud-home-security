@@ -61,3 +61,17 @@ func TestInvalidEventLimitUsesStructuredError(t *testing.T) {
 		t.Fatalf("unexpected error: %#v", body)
 	}
 }
+
+func TestStatusIncludesSanitizedSessionCounts(t *testing.T) {
+	s := newTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/status", nil)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "sessions_running") || strings.Contains(body, "rtsp://") {
+		t.Fatalf("status body = %s", body)
+	}
+}

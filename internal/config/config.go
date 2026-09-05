@@ -13,9 +13,12 @@ import (
 )
 
 const (
-	DefaultListenAddress             = "127.0.0.1:8787"
-	DefaultMediaProbeIntervalSeconds = 60
-	DefaultMediaProbeTimeoutSeconds  = 8
+	DefaultListenAddress                 = "127.0.0.1:8787"
+	DefaultMediaProbeIntervalSeconds     = 60
+	DefaultMediaProbeTimeoutSeconds      = 8
+	DefaultMediaSessionRWTimeoutSeconds  = 15
+	DefaultMediaSessionRestartMinSeconds = 1
+	DefaultMediaSessionRestartMaxSeconds = 30
 )
 
 var (
@@ -24,11 +27,15 @@ var (
 )
 
 type Config struct {
-	ListenAddress             string   `json:"listen_address"`
-	DataDir                   string   `json:"data_dir"`
-	MediaProbeIntervalSeconds int      `json:"media_probe_interval_seconds,omitempty"`
-	MediaProbeTimeoutSeconds  int      `json:"media_probe_timeout_seconds,omitempty"`
-	Cameras                   []Camera `json:"cameras"`
+	ListenAddress                 string   `json:"listen_address"`
+	DataDir                       string   `json:"data_dir"`
+	MediaProbeIntervalSeconds     int      `json:"media_probe_interval_seconds,omitempty"`
+	MediaProbeTimeoutSeconds      int      `json:"media_probe_timeout_seconds,omitempty"`
+	MediaSessionsEnabled          bool     `json:"media_sessions_enabled,omitempty"`
+	MediaSessionRWTimeoutSeconds  int      `json:"media_session_rw_timeout_seconds,omitempty"`
+	MediaSessionRestartMinSeconds int      `json:"media_session_restart_min_seconds,omitempty"`
+	MediaSessionRestartMaxSeconds int      `json:"media_session_restart_max_seconds,omitempty"`
+	Cameras                       []Camera `json:"cameras"`
 }
 
 type Camera struct {
@@ -89,6 +96,15 @@ func (c *Config) applyDefaults() {
 	if c.MediaProbeTimeoutSeconds == 0 {
 		c.MediaProbeTimeoutSeconds = DefaultMediaProbeTimeoutSeconds
 	}
+	if c.MediaSessionRWTimeoutSeconds == 0 {
+		c.MediaSessionRWTimeoutSeconds = DefaultMediaSessionRWTimeoutSeconds
+	}
+	if c.MediaSessionRestartMinSeconds == 0 {
+		c.MediaSessionRestartMinSeconds = DefaultMediaSessionRestartMinSeconds
+	}
+	if c.MediaSessionRestartMaxSeconds == 0 {
+		c.MediaSessionRestartMaxSeconds = DefaultMediaSessionRestartMaxSeconds
+	}
 }
 
 func (c Config) Validate() error {
@@ -103,6 +119,15 @@ func (c Config) Validate() error {
 	}
 	if c.MediaProbeTimeoutSeconds < 1 || c.MediaProbeTimeoutSeconds > 60 {
 		return errors.New("media_probe_timeout_seconds must be between 1 and 60")
+	}
+	if c.MediaSessionRWTimeoutSeconds < 5 || c.MediaSessionRWTimeoutSeconds > 300 {
+		return errors.New("media_session_rw_timeout_seconds must be between 5 and 300")
+	}
+	if c.MediaSessionRestartMinSeconds < 1 || c.MediaSessionRestartMinSeconds > 60 {
+		return errors.New("media_session_restart_min_seconds must be between 1 and 60")
+	}
+	if c.MediaSessionRestartMaxSeconds < c.MediaSessionRestartMinSeconds || c.MediaSessionRestartMaxSeconds > 300 {
+		return errors.New("media_session_restart_max_seconds must be between media_session_restart_min_seconds and 300")
 	}
 
 	seen := make(map[string]struct{}, len(c.Cameras))

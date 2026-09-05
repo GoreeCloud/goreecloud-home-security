@@ -1,25 +1,30 @@
 package camera
 
 import (
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/GoreeCloud/goreecloud-home-security/internal/config"
 )
 
-func TestRegistrySnapshotNeverContainsStreamOrSecretReferences(t *testing.T) {
+func TestSnapshotNeverContainsStreamOrSecretReferences(t *testing.T) {
 	r := NewRegistry([]config.Camera{{ID: "front-door", Name: "Front Door", StreamURL: "rtsp://camera.local/live", UsernameEnv: "CAMERA_USER", PasswordEnv: "CAMERA_PASS", Enabled: true}})
-	snapshot := r.Snapshot()
-	if len(snapshot) != 1 || snapshot[0].ID != "front-door" {
-		t.Fatalf("snapshot = %#v", snapshot)
+	got := r.Snapshot()
+	if len(got) != 1 || got[0].ID != "front-door" || got[0].Name != "Front Door" || !got[0].Enabled {
+		t.Fatalf("unexpected snapshot: %#v", got)
+	}
+	if got[0].Session.State != SessionIdle {
+		t.Fatalf("session = %#v", got[0].Session)
 	}
 }
 
-func TestMediaStatusRejectsRawErrorText(t *testing.T) {
-	now := time.Now()
-	status := MediaStatus{State: MediaUnavailable, LastProbeAt: &now, Reason: "dial tcp 10.0.0.5:554: refused"}
-	if err := status.Validate(); err == nil || !strings.Contains(err.Error(), "categorical") {
-		t.Fatalf("expected safe reason validation, got %v", err)
+func TestSessionStatusIsSanitizedAndSummarized(t *testing.T) {
+	r := NewRegistry([]config.Camera{{ID: "garage", Name: "Garage", StreamURL: "rtsp://camera.local/live", Enabled: true}})
+	now := time.Unix(100, 0).UTC()
+	if err := r.UpdateSession("garage", SessionStatus{State: SessionBackoff, Attempt: 2, LastExitAt: &now, Reason: "session_failed"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := r.Summary(); got.SessionsBackoff != 1 {
+		t.Fatalf("summary = %#v", got)
 	}
 }

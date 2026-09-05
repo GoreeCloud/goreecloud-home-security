@@ -20,14 +20,19 @@ The native Development foundation currently implements:
 - Sanitized camera inventory APIs that do not expose stream URLs or secret references.
 - Periodic bounded RTSP/RTSPS stream probing through an optional local `ffprobe` adapter for **unauthenticated** stream definitions.
 - Sanitized per-camera media state with codec, resolution, frame rate, last-probe timestamp, and categorical failure reason only.
-- Fail-closed blocking of credentialed external-media probing so reusable camera passwords are not placed into subprocess command lines.
-- A shell-free FFmpeg recording-plan primitive with camera-scoped segment paths; the plan is not executed yet.
+- A versioned protected-worker descriptor contract that resolves credential references in the parent process and transfers username/password material through an anonymous pipe rather than command arguments or child environment variables.
+- An opt-in long-running FFmpeg session supervisor for **unauthenticated** streams with direct process execution, bounded socket I/O timeout, capped exponential restart backoff, and sanitized per-camera session state.
+- Media subprocesses receive a fixed minimal environment instead of inheriting the daemon environment, reducing accidental credential propagation.
+- Credentialed FFprobe/FFmpeg media execution remains fail-closed until an authenticated worker actually consumes the protected descriptor contract.
+- A shell-free FFmpeg recording-plan primitive with camera-scoped segment paths; the recording plan is not executed yet.
 - A local append-only JSONL event journal with restrictive file permissions and fail-closed reads.
 - `GET /healthz`, `GET /readyz`, `GET /api/v1/status`, `GET /api/v1/cameras`, and `GET /api/v1/events`.
-- Request IDs, no-store response policy, structured API errors, and bounded event pagination.
-- Unit tests, `go vet`, build validation, and repository-governance checks.
+- Request IDs, no-store response policy, structured API errors, bounded event pagination, and sanitized aggregate session counts.
+- Unit tests, race tests, `go vet`, build validation, and repository-governance checks.
 
-This is still a Development media/control-plane foundation. **Continuous ingest, authenticated RTSP media workers, recording execution, retention enforcement, playback, live restreaming, motion detection, object inference/tracking, alerting, and the Glaze UI are not implemented yet.** The application is not Stable and is not production-approved.
+The long-running session supervisor is **disabled by default** (`media_sessions_enabled: false`). When explicitly enabled, it only establishes a Development RTSP/RTSPS session and copies the selected video stream to a null sink; it does not record media, provide playback/live view, perform detection, or prove camera compatibility on real hardware.
+
+**Protected authenticated RTSP ingest, recording execution, retention enforcement, playback, live restreaming, motion detection, object inference/tracking, alerting, and the Glaze UI remain unimplemented.** The application is not Stable and is not production-approved.
 
 ## Development run
 
@@ -48,34 +53,27 @@ curl http://127.0.0.1:8787/api/v1/cameras
 curl 'http://127.0.0.1:8787/api/v1/events?limit=100'
 ```
 
-If `ffprobe` is installed and a camera definition does not require credentials, Home Security will probe that stream on the configured interval. Credentialed cameras currently report `credentialed_probe_blocked`; this is a deliberate protection boundary, not an authentication failure. See `docs/MEDIA-ENGINE.md`.
+If `ffprobe` is installed and a camera definition does not require credentials, Home Security probes that stream on the configured interval. Credentialed cameras still report `credentialed_probe_blocked` for external-media execution.
+
+To exercise the new long-running **unauthenticated** Development session supervisor, explicitly set `media_sessions_enabled` to `true`. This is not recommended as unattended NVR operation yet because recorder execution, storage-pressure policy, retention, and target-camera validation are not implemented.
+
+See `docs/MEDIA-ENGINE.md` for the protected credential-transfer contract and current worker boundary.
 
 The development server intentionally rejects non-loopback listen addresses until an accepted authentication, authorization, and network-exposure boundary exists.
 
 ## Target capability direction
 
-The planned product is a capability superset for GoreeCloud home-security use, including:
+The planned product is a capability superset for GoreeCloud home-security use, including ONVIF discovery, protected authenticated RTSP/RTSPS ingest, managed live restreaming, motion pre-filtering, pluggable local detection, tracking, zones/rules, continuous and event-aware recording, review/timeline/export, local alerts, privacy-sensitive optional intelligence, and substantive GoreeCloud platform integrations.
 
-- ONVIF discovery and standards-based camera onboarding.
-- RTSP/RTSPS ingest and managed live restreaming.
-- Motion pre-filtering to reduce unnecessary inference work.
-- Pluggable local object detection across CPU, GPU, NPU, and accelerator backends.
-- Multi-object tracking, zones, masks, dwell/crossing rules, and event correlation.
-- Continuous, motion, event, and object-aware recording policies.
-- Timeline, review queue, clips, snapshots, playback, and export.
-- Local alert rules and GoreeCloud Notify integration.
-- Optional local face recognition, license-plate recognition, and semantic search behind explicit privacy controls.
-- GoreeCloud Identity authorization, Wardveil Security protection, Privacy Shield controls, Everkeep backup/recovery, GoreeCloud Mesh coordination, Manager status, and Glaze UI.
-- Home Assistant and MQTT interoperability where it provides value without becoming the core architecture.
-
-See `SPECIFICATIONS.md`, `FEATURES.md`, `docs/ARCHITECTURE.md`, and `docs/MEDIA-ENGINE.md` for the implementation boundary and phased roadmap.
+See `SPECIFICATIONS.md`, `FEATURES.md`, `docs/ARCHITECTURE.md`, and `docs/MEDIA-ENGINE.md` for implementation boundaries and phased work.
 
 ## Validation
 
 ```bash
 gofmt -w ./cmd ./internal
-go vet ./...
 go test ./...
+go test -race ./...
+go vet ./...
 go build ./cmd/home-securityd
 ```
 

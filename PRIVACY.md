@@ -6,34 +6,26 @@ Privacy posture: Development / incomplete. Privacy Shield integration is require
 
 ## Private data categories
 
-The product may process, depending on enabled features:
-
-- Live camera video and optional audio.
-- Recordings, clips, snapshots, and thumbnails.
-- Camera/device configuration and network endpoints.
-- Motion/object events and timestamps.
-- Object labels, scores, tracks, zones, and rule outcomes.
-- Household review state and alert history.
-- Optional face templates/identity matches.
-- Optional license-plate observations.
-- Optional embeddings and semantic-search metadata.
+The product may process live camera video/audio, recordings and derived media, camera/device endpoints, event metadata, object/zone information, review/alert history, and optional future biometric/plate/semantic data.
 
 ## Current default behavior
 
 - Processing is local.
-- No remote telemetry path exists in the current source slice.
-- No external AI provider exists.
-- No face recognition, plate recognition, semantic indexing, recording execution, sustained live ingest, or alert delivery exists yet.
+- No remote telemetry path or external AI provider exists.
 - The development API is loopback-only.
 - Camera list/status responses do not expose stream URLs or credential references.
 - Camera credentials must not be embedded in stream URLs.
-- Enabled unauthenticated streams may be periodically probed by local FFprobe when it is installed; only codec names, dimensions, frame rate, probe time, and categorical state are retained in public camera status.
-- Credentialed camera probing is currently blocked before external process execution so reusable passwords are not placed into command arguments.
-- Raw FFprobe stderr and camera/network failure details are not propagated to public status.
+- Enabled unauthenticated streams may be periodically probed by local FFprobe when installed; only bounded codec/dimension/FPS/probe state is retained in public status.
+- Long-running FFmpeg sessions are **disabled by default**. If explicitly enabled, they currently accept only unauthenticated camera definitions and copy the selected video stream to a null sink; no media is persisted by that session path.
+- Session status contains only bounded operational state, attempt/timestamp data, and categorical reasons.
+- FFprobe/FFmpeg subprocesses receive a fixed minimal environment rather than the daemon environment.
+- Credentialed external-media execution remains blocked. The new protected-worker descriptor can carry credentials over an anonymous pipe, but no authenticated media backend consumes it yet.
+- Raw media-tool stderr and camera/network failure details are not propagated to public status.
+- No face recognition, plate recognition, semantic indexing, recording execution, playback, or alert delivery exists yet.
 
 ## Purpose limitation
 
-Camera media and derived security events may be processed only for explicitly documented home-security functions. The current probe exists only to establish bounded stream compatibility/health metadata. A future recording, indexing, biometric, plate, or AI feature requires its own purpose, access, retention, deletion, export, backup, and external-transmission review.
+Current media probing and opt-in null-sink session supervision exist only to establish bounded local stream compatibility/session behavior. A future recording, indexing, biometric, plate, or AI feature requires its own purpose, access, retention, deletion, export, backup, and external-transmission review.
 
 ## Sensitive intelligence defaults
 
@@ -41,19 +33,9 @@ Face recognition, license-plate recognition, semantic embeddings, person re-iden
 
 ## Retention and deletion
 
-The current source slice stores only event metadata supplied internally to the event journal. Media probe state is held in memory and is not a recording. The FFmpeg recording-plan primitive does not create media. A production design must separately define retention/deletion for:
+The current source stores event metadata supplied to the JSONL journal. Probe and session status are transient in-memory operational state. The long-running null-sink session does not intentionally store media, and the FFmpeg recording-plan primitive does not create media.
 
-- Recording segments.
-- Clips and snapshots.
-- Thumbnails/previews.
-- Event metadata.
-- Search indexes and embeddings.
-- Face/plate derived data.
-- Temporary exports.
-- Caches.
-- Backups and recovery copies.
-
-No complete deletion claim may be made until all applicable layers have working deletion behavior and known backup limitations are represented accurately.
+A production design must separately define retention/deletion for recording segments, clips/snapshots, thumbnails, event metadata, search indexes, biometric/plate data, temporary exports, caches, and backup/recovery copies. No complete deletion claim may be made until all applicable layers have working deletion behavior and known backup limitations are represented accurately.
 
 ## Export
 

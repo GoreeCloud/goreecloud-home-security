@@ -18,10 +18,13 @@ import (
 
 const (
 	ReasonCredentialedProbeBlocked = "credentialed_probe_blocked"
+	ReasonCredentialUnavailable    = "credential_unavailable"
 	ReasonDependencyUnavailable    = "dependency_unavailable"
 	ReasonProbeTimeout             = "probe_timeout"
 	ReasonProbeFailed              = "probe_failed"
 	ReasonInvalidProbeOutput       = "invalid_probe_output"
+	ReasonSessionFailed            = "session_failed"
+	ReasonSessionExited            = "session_exited"
 )
 
 var codecNamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
@@ -38,11 +41,12 @@ type ProbeError struct {
 	Code string
 }
 
-func (e *ProbeError) Error() string {
-	return e.Code
-}
+func (e *ProbeError) Error() string { return e.Code }
 
 func ErrorCode(err error) string {
+	if err == nil {
+		return ""
+	}
 	var probeErr *ProbeError
 	if errors.As(err, &probeErr) {
 		return probeErr.Code
@@ -58,6 +62,7 @@ type execRunner struct{}
 
 func (execRunner) Run(ctx context.Context, executable string, args []string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, executable, args...)
+	cmd.Env = SanitizedWorkerEnvironment(nil)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = io.Discard
@@ -84,36 +89,23 @@ func NewFFProbe(executable string, timeout time.Duration) *FFProbe {
 	if timeout <= 0 {
 		timeout = 8 * time.Second
 	}
-	return &FFProbe{
-		executable: executable,
-		timeout:    timeout,
-		runner:     execRunner{},
-	}
+	return &FFProbe{executable: executable, timeout: timeout, runner: execRunner{}}
 }
 
 func newFFProbeWithRunner(executable string, timeout time.Duration, runner Runner) *FFProbe {
-	return &FFProbe{
-		executable: executable,
-		timeout:    timeout,
-		runner:     runner,
-	}
+	return &FFProbe{executable: executable, timeout: timeout, runner: runner}
 }
 
 func (p *FFProbe) Probe(ctx context.Context, camera config.Camera) (Metadata, error) {
+	if err := camera.Validate(); err != nil {
+		return Metadata{}, err
+	}
 	if camera.UsernameEnv != "" || camera.PasswordEnv != "" {
 		return Metadata{}, &ProbeError{Code: ReasonCredentialedProbeBlocked}
 	}
-
 	probeCtx, cancel := context.WithTimeout(ctx, p.timeout)
 	defer cancel()
-
-	args := []string{
-		"-v", "error",
-		"-rtsp_transport", "tcp",
-		"-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate",
-		"-of", "json",
-		camera.StreamURL,
-	}
+	args := []string{"-v", "error", "-rtsp_transport", "tcp", "-show_entries", "stream=codec_type,codec_name,width,height,avg_frame_rate", "-of", "json", camera.StreamURL}
 	payload, err := p.runner.Run(probeCtx, p.executable, args)
 	if err != nil {
 		if errors.Is(probeCtx.Err(), context.DeadlineExceeded) {
@@ -125,7 +117,6 @@ func (p *FFProbe) Probe(ctx context.Context, camera config.Camera) (Metadata, er
 		}
 		return Metadata{}, &ProbeError{Code: ReasonProbeFailed}
 	}
-
 	metadata, err := parseProbe(payload)
 	if err != nil {
 		return Metadata{}, &ProbeError{Code: ReasonInvalidProbeOutput}
@@ -136,7 +127,6 @@ func (p *FFProbe) Probe(ctx context.Context, camera config.Camera) (Metadata, er
 type ffprobeOutput struct {
 	Streams []ffprobeStream `json:"streams"`
 }
-
 type ffprobeStream struct {
 	CodecType    string `json:"codec_type"`
 	CodecName    string `json:"codec_name"`
@@ -152,19 +142,16 @@ func parseProbe(payload []byte) (Metadata, error) {
 	if err := dec.Decode(&output); err != nil {
 		return Metadata{}, fmt.Errorf("decode probe: %w", err)
 	}
-
 	var extra any
 	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
 		return Metadata{}, errors.New("probe output must contain one JSON value")
 	}
-
 	var result Metadata
 	foundVideo := false
 	for _, stream := range output.Streams {
 		if stream.CodecName != "" && !codecNamePattern.MatchString(stream.CodecName) {
 			return Metadata{}, errors.New("probe codec name is invalid")
 		}
-
 		switch stream.CodecType {
 		case "video":
 			if foundVideo {
@@ -173,15 +160,11 @@ func parseProbe(payload []byte) (Metadata, error) {
 			if stream.Width < 1 || stream.Width > 16384 || stream.Height < 1 || stream.Height > 16384 {
 				return Metadata{}, errors.New("probe video dimensions are invalid")
 			}
-
 			fps, err := parseRate(stream.AvgFrameRate)
 			if err != nil {
 				return Metadata{}, err
 			}
-			result.VideoCodec = stream.CodecName
-			result.Width = stream.Width
-			result.Height = stream.Height
-			result.FPS = fps
+			result.VideoCodec, result.Width, result.Height, result.FPS = stream.CodecName, stream.Width, stream.Height, fps
 			foundVideo = true
 		case "audio":
 			if result.AudioCodec == "" {
@@ -189,7 +172,6 @@ func parseProbe(payload []byte) (Metadata, error) {
 			}
 		}
 	}
-
 	if !foundVideo {
 		return Metadata{}, errors.New("probe contains no video stream")
 	}
@@ -200,7 +182,6 @@ func parseRate(value string) (float64, error) {
 	if value == "" || value == "0/0" {
 		return 0, nil
 	}
-
 	parts := strings.Split(value, "/")
 	if len(parts) != 2 {
 		return 0, errors.New("invalid frame rate")
@@ -213,7 +194,6 @@ func parseRate(value string) (float64, error) {
 	if err != nil || den == 0 {
 		return 0, errors.New("invalid frame rate")
 	}
-
 	fps := num / den
 	if fps < 0 || fps > 1000 {
 		return 0, errors.New("frame rate out of range")

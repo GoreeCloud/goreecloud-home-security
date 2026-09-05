@@ -3,6 +3,10 @@
   "data_dir": "./data",
   "media_probe_interval_seconds": 60,
   "media_probe_timeout_seconds": 8,
+  "media_sessions_enabled": false,
+  "media_session_rw_timeout_seconds": 15,
+  "media_session_restart_min_seconds": 1,
+  "media_session_restart_max_seconds": 30,
   "cameras": [
     {
       "id": "front-door",

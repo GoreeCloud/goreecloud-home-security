@@ -24,10 +24,10 @@ api:
       purpose: Local service readiness after configuration and event-journal initialization.
     - name: status
       url: /api/v1/status
-      purpose: Bounded Development lifecycle, camera-count, and aggregate sanitized media-state status without private camera details.
+      purpose: Bounded Development lifecycle, camera-count, aggregate sanitized media-state, and aggregate session-state status without private camera details.
     - name: cameras
       url: /api/v1/cameras
-      purpose: Sanitized read-only camera identity, enabled state, and bounded media probe status without stream URLs, credential references, or raw diagnostics.
+      purpose: Sanitized read-only camera identity, enabled state, bounded media probe status, and bounded session status without stream URLs, credential references, or raw diagnostics.
     - name: events
       url: /api/v1/events
       purpose: Bounded read-only local security-event metadata access.
@@ -46,20 +46,21 @@ platform_systems:
       - PRIVACY.md
       - internal/config/config.go
       - internal/camera/registry.go
-      - internal/media/probe.go
-      - internal/media/manager_test.go
+      - internal/media/descriptor.go
+      - internal/media/session.go
       - internal/api/server_test.go
-    notes: Source-level privacy-safe defaults and media-status minimization exist, but the approved Privacy Shield adapter/contract and runtime acceptance are not integrated.
+    notes: Source-level privacy-safe defaults, credential-transfer minimization, and bounded media/session status exist, but the approved Privacy Shield adapter/contract and runtime acceptance are not integrated.
   wardveil_security:
     result: applicable-blocked
     version: null
     evidence:
       - SECURITY.md
       - internal/config/config.go
-      - internal/api/server.go
-      - internal/media/probe.go
+      - internal/media/descriptor.go
+      - internal/media/session.go
+      - internal/media/supervisor.go
       - internal/media/recording.go
-    notes: Development source controls, shell-free media command construction, and credentialed-process blocking exist, but Wardveil Security integration, authentication/authorization, remote exposure acceptance, and production security validation are incomplete.
+    notes: Development source controls, shell-free media commands, minimal child environments, protected descriptor primitives, and credentialed-process blocking exist, but Wardveil Security integration, authentication/authorization, remote exposure acceptance, and production security validation are incomplete.
   everkeep:
     result: applicable-blocked
     version: null
@@ -67,7 +68,7 @@ platform_systems:
       - RECOVERY.md
       - internal/events/journal.go
       - docs/MEDIA-ENGINE.md
-    notes: The local event journal is portable as a file and recording layout is only planned, but accepted Everkeep backup, restore, recovery, migration, rollback, and restore-validation evidence do not exist.
+    notes: The local event journal is portable as a file and recording layout is only planned; accepted Everkeep backup, restore, recovery, migration, rollback, and restore-validation evidence do not exist.
   glaze_ui:
     result: applicable-blocked
     version: null
@@ -123,7 +124,7 @@ continuity:
 
 external_dependencies:
   - name: ffmpeg-ffprobe
-    purpose: Optional Development media foundation for bounded RTSP/RTSPS stream probing and future remux/segment/decode workers; Home Security remains the application authority.
+    purpose: Optional Development media foundation for bounded RTSP/RTSPS probing and opt-in unauthenticated null-sink session supervision, with future remux/segment/decode worker roles; Home Security remains the application authority.
     required: false
     version_constraint: null
 
@@ -144,6 +145,9 @@ evidence:
     - internal/api/server_test.go
     - internal/media/probe_test.go
     - internal/media/manager_test.go
+    - internal/media/descriptor_test.go
+    - internal/media/session_test.go
+    - internal/media/supervisor_test.go
     - internal/media/recording_test.go
   release: []
 
@@ -159,11 +163,13 @@ conformance:
     - docs/MEDIA-ENGINE.md
     - internal/config/config_test.go
     - internal/api/server_test.go
-    - internal/media/probe_test.go
-    - internal/media/manager_test.go
-    - internal/media/recording_test.go
+    - internal/media/descriptor_test.go
+    - internal/media/session_test.go
+    - internal/media/supervisor_test.go
   blockers:
-    - Long-running camera ingest, protected authenticated RTSP media workers, decode/restreaming, motion detection, object inference, tracking, recorder execution, retention, playback, and review UI are not implemented.
+    - The protected descriptor contract is not yet consumed by an authenticated RTSP media worker, so credentialed media execution remains blocked.
+    - Opt-in unauthenticated session supervision is source-validated only; exact real-camera sustained-flow, stall detection, reconnect, and target-runtime evidence do not exist.
+    - Recorder execution, crash-safe segment indexing, retention/storage-pressure enforcement, playback, restreaming, motion detection, object inference/tracking, and review UI are not implemented.
     - GoreeCloud Manager operational integration and acceptance are incomplete.
     - Privacy Shield contract integration and runtime privacy acceptance are incomplete.
     - Wardveil Security integration, Identity-backed authorization, and production security validation are incomplete.
@@ -171,6 +177,6 @@ conformance:
     - Current Stable Glaze UI implementation and acceptance are incomplete because no user interface exists yet.
     - GoreeCloud Mesh registration, policy, dependency/event integration, and runtime acceptance are incomplete.
     - GoreeCloud Identity account, session, authentication, authorization, and household-role integration are incomplete.
-    - FFmpeg/FFprobe has a bounded Development adapter but no production-selected/pinned version, artifact provenance, authenticated credential-transfer path, target-runtime acceptance, or hardware-acceleration validation.
+    - FFmpeg/FFprobe has a bounded Development adapter but no production-selected/pinned version, artifact provenance, target-runtime acceptance, or hardware-acceleration validation.
     - Target hardware, accelerator, storage, load, privacy, security, recovery, and production deployment acceptance are incomplete.
     - No Stable or production-approved GoreeCloud Home Security release evidence exists.

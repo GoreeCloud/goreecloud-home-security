@@ -80,12 +80,28 @@ func run() error {
 	)
 	go mediaManager.Run(ctx)
 
+	if cfg.MediaSessionsEnabled {
+		session := media.NewFFmpegSession(
+			"ffmpeg",
+			time.Duration(cfg.MediaSessionRWTimeoutSeconds)*time.Second,
+		)
+		supervisor := media.NewSupervisor(
+			cfg.Cameras,
+			registry,
+			session,
+			time.Duration(cfg.MediaSessionRestartMinSeconds)*time.Second,
+			time.Duration(cfg.MediaSessionRestartMaxSeconds)*time.Second,
+		)
+		go supervisor.Run(ctx)
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		slog.Info(
 			"GoreeCloud Home Security development API listening",
 			"address", cfg.ListenAddress,
 			"cameras", registry.Count(),
+			"media_sessions_enabled", cfg.MediaSessionsEnabled,
 		)
 		errCh <- httpServer.ListenAndServe()
 	}()

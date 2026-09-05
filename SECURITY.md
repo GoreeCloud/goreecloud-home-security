@@ -10,18 +10,26 @@ Security posture: Development / incomplete. This repository is not production-ap
 - RTSP/RTSPS URLs containing user-info credentials are rejected.
 - Camera credential fields are environment-variable references rather than secret values.
 - Camera API output omits stream URLs and secret references.
-- External FFprobe execution uses a direct argument vector and never shell interpolation.
-- Media-tool stderr/raw failures are not copied into public media status; status uses bounded categorical failure reasons.
-- Credentialed camera probing fails closed before an external media process starts, preventing the current implementation from placing reusable camera passwords into process command arguments.
-- Parsed probe output is bounded to codec names, dimensions, and frame rate before entering public camera status.
+- External FFprobe/FFmpeg execution uses direct argument vectors and never shell interpolation.
+- Media subprocesses receive a fixed minimal environment (`LANG`, `LC_ALL`, `TZ`) rather than inheriting daemon environment variables, preventing configured camera secret variables from being propagated to those children.
+- Media-tool stderr/raw failures are discarded instead of being copied into public media/session status; status uses bounded categorical reasons.
+- Credentialed FFprobe/FFmpeg execution still fails closed before process execution.
+- A versioned protected-worker descriptor can resolve credential references in the parent process and serialize username/password material through an anonymous pipe intended for an inherited file descriptor. The protected worker surface does not put these values into command arguments or child environment variables.
+- No authenticated media worker consumes that descriptor yet, so this is a protected transfer contract—not a claim of working authenticated RTSP ingest.
+- Long-running FFmpeg session supervision is opt-in, unauthenticated-only, uses bounded network I/O timeout, and applies capped exponential restart backoff.
+- Parsed probe output and public session state are bounded before entering API status.
 - Recording planning validates camera IDs and segment duration and remains plan-only; `home-securityd` does not start an FFmpeg recorder yet.
-- Event storage is created with restrictive local permissions.
-- Event journal corruption fails closed instead of silently dropping malformed records.
-- API responses use request IDs, `no-store`, structured errors, and `nosniff`.
-- HTTP server timeouts and header-size limits are configured.
-- The GoreeCloud-owned Go source currently has no external Go module dependencies; FFmpeg/FFprobe are optional external process foundations and are not production-pinned or accepted yet.
+- Event storage is created with restrictive local permissions and corruption fails closed.
+- API responses use request IDs, `no-store`, structured errors, and `nosniff`; server timeouts and header-size limits are configured.
+- The GoreeCloud-owned Go source has no external Go module dependencies; FFmpeg/FFprobe remain optional external process foundations and are not production-pinned or accepted yet.
 
 These are source-level controls only; they are not target-runtime or production evidence.
+
+## Protected credential-transfer boundary
+
+The descriptor contract uses an anonymous pipe so reusable camera credentials do not need to appear in `/proc/.../cmdline` or the child environment. The descriptor is size-bounded, versioned, strict-decoded, validates credential-free RTSP/RTSPS URLs, and requires username/password values as a pair.
+
+This reduces accidental exposure; it does not protect credentials from a privileged host administrator, kernel compromise, process-memory inspection, or an unsafe future worker implementation. A production authenticated worker must consume the inherited descriptor directly and must not reconstruct a credential-bearing FFmpeg command line.
 
 ## Required before remote exposure
 
@@ -36,17 +44,9 @@ These are source-level controls only; they are not target-runtime or production 
 
 ## Media and inference threat model
 
-Camera streams, codecs, metadata, ONVIF responses, uploaded/exported media, and detector-model inputs are untrusted. Future implementation must:
+Camera streams, codecs, metadata, ONVIF responses, uploaded/exported media, and detector-model inputs are untrusted. Future implementation must isolate/bound media and detector workers, keep secrets out of logs and externally visible arguments, validate paths and model provenance, treat network cameras as potentially compromised peers, and pin/validate the exact FFmpeg/FFprobe package/build before release qualification.
 
-- Isolate media parsing and detector workers where practical.
-- Bound CPU, memory, GPU/NPU, file, descriptor, network, process, and queue usage.
-- Avoid shell interpolation when launching media tools.
-- Keep reusable camera credentials out of logs and externally visible command lines; the current external-media adapter blocks credentialed cameras until a protected ingest design exists.
-- Treat non-credential stream URLs as private configuration even though an authorized local host administrator may be able to observe process arguments.
-- Validate file paths and prevent traversal across recording/export roots.
-- Validate model identity, provenance, and allowed formats before loading.
-- Treat cameras and local-network devices as potentially compromised peers.
-- Pin and validate the exact FFmpeg/FFprobe package/build or container artifact before release qualification.
+A non-credential stream URL can still be visible in the opt-in FFmpeg process command line. It remains private configuration and the current Development implementation assumes the local host administrator is trusted. Credential-bearing URLs remain prohibited.
 
 ## Vulnerability reporting
 
