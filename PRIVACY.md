@@ -23,14 +23,17 @@ The product may process, depending on enabled features:
 - Processing is local.
 - No remote telemetry path exists in the current source slice.
 - No external AI provider exists.
-- No face recognition, plate recognition, semantic indexing, recording, live ingest, or alert delivery exists yet.
+- No face recognition, plate recognition, semantic indexing, recording execution, sustained live ingest, or alert delivery exists yet.
 - The development API is loopback-only.
 - Camera list/status responses do not expose stream URLs or credential references.
 - Camera credentials must not be embedded in stream URLs.
+- Enabled unauthenticated streams may be periodically probed by local FFprobe when it is installed; only codec names, dimensions, frame rate, probe time, and categorical state are retained in public camera status.
+- Credentialed camera probing is currently blocked before external process execution so reusable passwords are not placed into command arguments.
+- Raw FFprobe stderr and camera/network failure details are not propagated to public status.
 
 ## Purpose limitation
 
-Camera media and derived security events may be processed only for explicitly documented home-security functions. A future indexing, biometric, plate, or AI feature requires its own purpose, access, retention, deletion, export, backup, and external-transmission review.
+Camera media and derived security events may be processed only for explicitly documented home-security functions. The current probe exists only to establish bounded stream compatibility/health metadata. A future recording, indexing, biometric, plate, or AI feature requires its own purpose, access, retention, deletion, export, backup, and external-transmission review.
 
 ## Sensitive intelligence defaults
 
@@ -38,7 +41,7 @@ Face recognition, license-plate recognition, semantic embeddings, person re-iden
 
 ## Retention and deletion
 
-The current source slice stores only event metadata supplied internally to the event journal. A production design must separately define retention/deletion for:
+The current source slice stores only event metadata supplied internally to the event journal. Media probe state is held in memory and is not a recording. The FFmpeg recording-plan primitive does not create media. A production design must separately define retention/deletion for:
 
 - Recording segments.
 - Clips and snapshots.

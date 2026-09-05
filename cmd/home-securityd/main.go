@@ -16,6 +16,7 @@ import (
 	"github.com/GoreeCloud/goreecloud-home-security/internal/camera"
 	"github.com/GoreeCloud/goreecloud-home-security/internal/config"
 	"github.com/GoreeCloud/goreecloud-home-security/internal/events"
+	"github.com/GoreeCloud/goreecloud-home-security/internal/media"
 )
 
 const version = "unreleased-development"
@@ -32,9 +33,11 @@ func run() error {
 	if defaultConfig == "" {
 		defaultConfig = "./config/local.json"
 	}
+
 	configPath := flag.String("config", defaultConfig, "path to JSON configuration")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
 	if *showVersion {
 		fmt.Println(version)
 		return nil
@@ -44,6 +47,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+
 	registry := camera.NewRegistry(cfg.Cameras)
 	journal, err := events.NewJournal(filepath.Join(cfg.DataDir, "events.jsonl"))
 	if err != nil {
@@ -64,9 +68,25 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	prober := media.NewFFProbe(
+		"ffprobe",
+		time.Duration(cfg.MediaProbeTimeoutSeconds)*time.Second,
+	)
+	mediaManager := media.NewManager(
+		cfg.Cameras,
+		registry,
+		prober,
+		time.Duration(cfg.MediaProbeIntervalSeconds)*time.Second,
+	)
+	go mediaManager.Run(ctx)
+
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("GoreeCloud Home Security development API listening", "address", cfg.ListenAddress, "cameras", registry.Count())
+		slog.Info(
+			"GoreeCloud Home Security development API listening",
+			"address", cfg.ListenAddress,
+			"cameras", registry.Count(),
+		)
 		errCh <- httpServer.ListenAndServe()
 	}()
 

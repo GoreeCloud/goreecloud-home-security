@@ -11,124 +11,66 @@
 - Canonical identifier: `com.goreecloud.homesecurity`
 - Production status: Not production-approved
 
-This document separates current implementation from planned product direction. Planned capabilities are not implementation claims.
+This document separates verified current implementation from planned product direction. Planned capabilities are not implementation claims.
 
 ## 1. Role and purpose
 
-GoreeCloud Home Security is the first-party GoreeCloud application for local camera ingest, NVR recording, video-security event detection, review, alerting, and privacy-controlled security intelligence.
+GoreeCloud Home Security is GoreeCloud's first-party local camera, NVR, event-detection, review, and home-security intelligence application. It must remain an independently maintainable GoreeCloud product rather than a Frigate fork or another complete-product NVR wrapped in GoreeCloud branding.
 
-It exists to provide GoreeCloud with an independently maintainable home-security platform instead of making an external complete-product NVR the permanent application layer.
+Target users are authorized household members and administrators. Future authorization must distinguish ordinary viewers, security reviewers, household administrators, and service identities when their permissions differ.
 
-## 2. Users
+## 2. Native architecture and dependency rule
 
-Target users are authorized GoreeCloud household members and administrators. The final authorization model must distinguish ordinary viewers, security reviewers, household administrators, and machine/service identities where their permissions materially differ.
+The application is original GoreeCloud-owned software. Narrow foundations may include mature codecs, FFmpeg/FFprobe-class media tooling, ONVIF/RTSP protocol libraries, databases, inference runtimes, and hardware-acceleration APIs when independent reimplementation would increase risk or reduce interoperability. Those components remain bounded dependencies; they do not own Home Security policy, authorization, event semantics, retention, review state, or GoreeCloud platform integration.
 
-## 3. Native architecture rule
+## 3. Current Development implementation
 
-The application must remain an original GoreeCloud implementation. Narrow technical foundations may include mature codecs, FFmpeg-class media tooling, ONVIF/RTSP protocol libraries, databases, inference runtimes, and hardware acceleration APIs where recreating them would increase compatibility, security, or maintenance risk. They must remain bounded dependencies, not inherited complete-product application architectures.
+The current source-validated Development slice implements:
 
-## 4. Current implementation — source validated locally
+1. Strict JSON configuration with unknown-field rejection and bounded media-probe settings.
+2. Camera IDs, names, enabled state, RTSP/RTSPS URLs, and environment-variable credential references.
+3. Rejection of credentials embedded in stream URLs and non-loopback API exposure.
+4. Sanitized camera records that never disclose stream URLs or secret-reference names.
+5. Periodic direct-process `ffprobe` inspection for enabled **unauthenticated** RTSP/RTSPS streams.
+6. Bounded probe deadlines and sanitized media state: state, video/audio codec, dimensions, FPS, last-probe time, and categorical reason only.
+7. Fail-closed `credentialed_probe_blocked` behavior before any external media process starts when camera credential references exist.
+8. A shell-free FFmpeg recording-plan primitive with path-safe camera scoping and bounded segment duration. The daemon does not execute the plan.
+9. A local `0600` JSONL event journal with `fsync` append durability and fail-closed malformed-record reads.
+10. Read-only health, readiness, status, camera, and event APIs with request IDs, `no-store`, `nosniff`, structured errors, and bounded event pagination.
+11. Unit tests plus formatting, vet, build, and repository-governance validation.
 
-The current Development slice contains:
+This is not sustained NVR ingest. It does not establish authenticated-camera compatibility, recording execution, retention, playback, motion/object detection, or production acceptance.
 
-1. Strict JSON configuration loading with unknown-field rejection.
-2. Camera identifiers, display names, enabled state, RTSP/RTSPS stream URLs, and environment secret references.
-3. Rejection of credentials embedded in camera URLs.
-4. Rejection of non-loopback HTTP exposure until the authorization boundary is implemented.
-5. Sanitized public camera records containing only ID, name, and enabled state.
-6. Local JSONL event journal creation with `0600` file permissions and append durability via `fsync`.
-7. Fail-closed event-journal reads when stored records are malformed.
-8. Read-only HTTP endpoints for health, readiness, bounded status, cameras, and events.
-9. Generated request IDs, `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, and structured errors.
-10. Unit tests, formatting, vet, and build validation.
+## 4. Camera and media requirements
 
-These controls establish a safe foundation. They do not establish NVR functionality or production acceptance.
+### Current
 
-## 5. Required product capability domains
+- Manual validated camera configuration.
+- RTSP/RTSPS stream probing for unauthenticated streams.
+- Sanitized media-health projection.
+- Credentialed external-media execution blocked until a protected credential-transfer design exists.
+- FFmpeg segment command planning only.
 
-### 5.1 Camera and device management
+### Planned
 
-Planned:
-
-- Manual camera registration.
 - ONVIF discovery and device capability inspection.
-- Multiple streams per camera for live view, detection, and recording roles.
-- Camera health, reconnect state, clock drift, and stream diagnostics.
-- PTZ control only where explicitly authorized.
-- Camera groups, locations, privacy zones, masks, and schedules.
-- Secure secret references rather than stored cleartext camera credentials.
+- Multiple streams per camera for live view, recording, and detection roles.
+- Protected authenticated RTSP/RTSPS ingest without reusable credentials in externally visible process arguments.
+- Long-running worker supervision, reconnect/backoff, jitter handling, bounded queues, and offline/tamper events.
+- Low-latency local live view/restreaming and optional hardware decode.
+- Crash-safe segment writer execution and recording indexes.
+- Continuous, motion, and event/object-aware recording; pre/post-roll; clip/snapshot extraction.
+- Explicit retention by age, class, camera, protected state, and storage pressure before unattended recording is enabled.
 
-### 5.2 Media ingest and live view
+## 5. Detection, review, and automation requirements
 
-Planned:
+Planned capabilities include motion/activity gating, pluggable local object detectors, CPU/GPU/NPU/accelerator discovery, versioned detector contracts, tracking, zones, masks, dwell and line-crossing rules, review queue/timeline, filters, thumbnails, portable exports, rule-based alerts, GoreeCloud Notify, Mesh events, and optional MQTT/Home Assistant interoperability through bounded adapters.
 
-- RTSP and RTSPS ingest.
-- Codec-aware stream probing.
-- Managed low-latency live view and restreaming.
-- Hardware decode paths where supported.
-- Backpressure, reconnect, jitter, and source-failure handling.
-- No default remote relay or cloud dependency.
+Face recognition, license-plate recognition, semantic embeddings/search, person re-identification, and cross-camera correlation are privacy-sensitive. They remain disabled by default and unimplemented until explicit purpose, access, retention, deletion, export, and evidence boundaries exist. External AI services must not receive private camera media without separate explicit approval.
 
-### 5.3 Detection and tracking
+## 6. API and data boundaries
 
-Planned:
-
-- Motion pre-filtering before expensive inference where appropriate.
-- Pluggable local object-detection workers.
-- CPU, GPU, NPU, and accelerator capability discovery.
-- Versioned detector contracts with bounded resource use.
-- Multi-object tracking and event lifecycle correlation.
-- Per-camera labels, thresholds, zones, masks, dwell rules, line crossing, and object filters.
-- Detection pipelines that can be disabled per camera.
-
-### 5.4 Recording and retention
-
-Planned:
-
-- Continuous recording.
-- Motion-based recording.
-- Event/object-aware recording.
-- Pre-roll and post-roll buffers.
-- Retention by recording class, age, storage pressure, camera, and protected event state.
-- Clip and snapshot extraction.
-- Storage health and capacity safeguards.
-- Deletion behavior that distinguishes active storage, indexes, thumbnails, exports, and backups.
-
-### 5.5 Review and search
-
-Planned:
-
-- Unified review queue.
-- Timeline with event grouping.
-- Filters by camera, time, label, zone, event type, and review state.
-- Fast thumbnail/preview generation.
-- Portable clip/snapshot export.
-- Optional semantic search using local embeddings only when explicitly enabled and privacy-reviewed.
-
-### 5.6 Optional privacy-sensitive intelligence
-
-Planned but **disabled by default and not implemented**:
-
-- Face detection/recognition.
-- License-plate detection/recognition.
-- Semantic embeddings and natural-language video/event search.
-- Person re-identification or cross-camera correlation.
-
-Each capability requires explicit purpose, user control, retention, deletion, export, access, and evidence boundaries. External AI services must not receive private camera media without separate explicit approval.
-
-### 5.7 Alerts and automation
-
-Planned:
-
-- Rule engine for object, motion, zone, dwell, line-crossing, offline-camera, tamper, and storage events.
-- Rate limiting, deduplication, quiet periods, severity, and escalation.
-- GoreeCloud Notify integration.
-- GoreeCloud Mesh event publication with minimum necessary metadata.
-- Optional MQTT/Home Assistant interoperability through bounded adapters.
-
-## 6. API contract direction
-
-Current v1 read-only endpoints:
+Current endpoints:
 
 - `GET /healthz`
 - `GET /readyz`
@@ -136,85 +78,55 @@ Current v1 read-only endpoints:
 - `GET /api/v1/cameras`
 - `GET /api/v1/events?limit=N`
 
-Future APIs must use explicit authentication/authorization, structured errors, request IDs, bounded pagination/filtering, rate/resource controls, timeouts, idempotency for retried mutations, and versioned deprecation rules where applicable.
+Status exposes aggregate media-state counts. Camera responses may expose sanitized state/codec/dimension/FPS data, but not stream URLs, credentials, secret references, raw FFprobe diagnostics, or process stderr.
 
-## 7. Data model direction
+Future mutations and private-media APIs require GoreeCloud Identity authentication/authorization, structured errors, bounded pagination/filtering, rate/resource controls, timeouts, idempotency where retry matters, and versioned deprecation rules.
 
-Authoritative data domains are expected to include:
+Authoritative domains are expected to include camera/stream configuration, event/detection metadata, recording indexes, review state, retention policy, rules, privacy controls, export metadata, and platform evidence. Raw media must remain separately manageable from metadata. Current media probe state is transient in-memory operational state.
 
-- Camera configuration and capability metadata.
-- Stream-role configuration.
-- Event and detection metadata.
-- Recording segment indexes.
-- Review state.
-- Retention policy.
-- Alert/rule configuration.
-- Privacy-control configuration.
-- Export metadata.
-- Platform integration evidence/status.
+## 7. Privacy requirements
 
-Raw media and derived media must remain separately manageable from event metadata so retention and deletion can be reasoned about explicitly.
+- Local-first processing and no remote telemetry by default.
+- Camera credentials remain outside ordinary source and portable configuration.
+- Reusable camera credentials must not be exposed in media-process command arguments, logs, API payloads, or diagnostics.
+- Public/status APIs must minimize device/network/media detail.
+- Raw media-tool failures must not be promoted to public status.
+- Recording/metadata retention must be explicit; deletion/export claims require actual implemented mechanisms.
+- Privacy Shield runtime integration and acceptance remain required and currently blocked.
 
-## 8. Privacy requirements
+## 8. Security requirements
 
-- Local-first processing is the default.
-- No remote telemetry by default.
-- Camera credentials must remain outside normal source and portable config.
-- API/status responses must not disclose stream URLs, credentials, private media, or unnecessary device/network metadata.
-- Optional biometric, plate, and semantic processing must be off by default.
-- Recording and metadata retention must be explicit and configurable.
-- Actual deletion and export mechanisms must precede any claim that deletion/export is supported.
-- Privacy Shield runtime integration remains required and currently blocked/unaccepted.
+- API exposure remains loopback-only until GoreeCloud Identity and Wardveil Security establish an accepted access boundary.
+- External media commands use direct argument vectors rather than shell interpolation.
+- Camera media and metadata are untrusted inputs; parser/worker CPU, memory, GPU/NPU, process, file, descriptor, network, and queue usage must be bounded.
+- Recording/export paths must prevent traversal across approved roots.
+- FFmpeg/FFprobe must be pinned, reviewed, and target-runtime validated before release qualification.
+- Administrative and ordinary viewing permissions must remain distinct.
 
-## 9. Security requirements
+## 9. Integral platform systems
 
-- Network exposure remains loopback-only until GoreeCloud Identity and Wardveil Security integration establishes an accepted access boundary.
-- Secrets must not be placed in stream URLs, logs, source, examples, or API payloads.
-- Media parsing and detector workers must be isolated and resource-bounded because camera streams and media files are untrusted input.
-- External command execution must avoid shell interpolation and credential leakage.
-- Administrative and ordinary viewing permissions must be distinct.
-- Recording/export access must be auditable without logging private media contents.
-- Security review is required before any remote exposure or production deployment.
+All seven systems are applicable and currently incomplete/unaccepted:
 
-## 10. Integral Platform Systems
-
-All seven systems are evaluated as applicable:
-
-- GoreeCloud Manager — status/operational visibility; not integrated.
-- Privacy Shield — privacy controls/evidence; required and not integrated.
-- Wardveil Security — protection/security evidence; required and not integrated.
-- Everkeep — backup/recovery/portability evidence; required and not integrated.
-- Glaze UI — required for the future user interface; not implemented.
-- GoreeCloud Mesh — registration, events, relationships, policy/coordination; not integrated.
-- GoreeCloud Identity — account/session/authentication/authorization authority; not integrated.
+- GoreeCloud Manager — operational status/visibility.
+- Privacy Shield — privacy controls and evidence.
+- Wardveil Security — security/protection evidence.
+- Everkeep — backup, restore, recovery, portability, rollback evidence.
+- Glaze UI — required user interface contract.
+- GoreeCloud Mesh — registration, relationships, events, policy/coordination.
+- GoreeCloud Identity — accounts, sessions, authentication, authorization, household roles, service identities.
 
 No Stable claim is allowed while applicable required integrations remain incomplete or unverified.
 
-## 11. Deployment direction
+## 10. Deployment, recovery, and portability
 
-Primary target: self-hosted Linux systems, initially as a native service and later as a reproducible containerized deployment where appropriate. Hardware acceleration must be optional and capability-discovered rather than assumed.
+Primary target is self-hosted Linux, initially as a native service and later as reproducible containerized deployment where appropriate. Hardware acceleration is optional and capability-discovered. The current server is loopback-only, and no production FFmpeg/FFprobe package/build is selected or pinned.
 
-The current development server is intentionally loopback-only.
+Before production acceptance, Home Security requires configuration recovery without embedded camera secrets, metadata backup/restore, an explicit policy for bulk-video backup or exclusion, Everkeep integration, portable authorized media/metadata export, restore validation on a clean isolated target, and rollback behavior for the exact candidate.
 
-## 12. Backup, recovery, and export
+## 11. Testing and release gates
 
-Required before production acceptance:
+Current tests cover configuration safety/defaults, loopback policy, sanitized camera state, media-status validation, FFprobe parsing, credentialed-process blocking, categorical failure projection, recording-plan safety, journal durability/permissions/corruption handling, and API privacy/error behavior.
 
-- Configuration recovery without embedding reusable camera secrets.
-- Metadata/event database backup and verified restore.
-- Recording policy for whether bulk video is backed up, replicated, or intentionally excluded.
-- Everkeep integration for approved recovery evidence.
-- Export of user-selected recordings/clips/snapshots and portable metadata where appropriate.
-- Restore validation on a clean isolated target.
+Future acceptance must add real camera/media fixtures, parser fuzzing, authenticated and sustained ingest/reconnect tests, recorder/segment integrity and retention/deletion tests, detector/resource-abuse tests, authorization tests, export/restore tests, accelerator matrix tests, Glaze UI tests, exact artifact provenance, and target-environment validation.
 
-## 13. Testing requirements
-
-Current tests cover configuration safety, loopback exposure policy, sanitized camera output, journal durability/permissions, malformed-journal failure, API privacy headers, and structured errors.
-
-Future acceptance must add media fixtures, parser fuzzing, ingest/reconnect tests, detector contract tests, resource-abuse tests, retention/deletion tests, authz tests, export tests, restore tests, hardware-accelerator matrix tests, Glaze UI tests, and exact target-environment validation.
-
-## 14. Release model
-
-Current: Development / unreleased.
-
-Progression to Release Candidate or Stable requires the applicable GoreeCloud release lifecycle, security/privacy/recovery evidence, platform-system acceptance, CI, exact artifact provenance, migration/rollback documentation, and target-runtime validation. Source availability or passing unit tests alone are insufficient.
+Current release state is Development / unreleased / nonconformant. Release Candidate or Stable requires applicable lifecycle, CI, exact-candidate security/privacy/recovery evidence, platform-system acceptance, migration/rollback documentation, artifact provenance, and target-runtime validation. Source availability or passing unit tests alone are insufficient.

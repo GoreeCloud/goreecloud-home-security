@@ -12,7 +12,11 @@ import (
 	"strings"
 )
 
-const DefaultListenAddress = "127.0.0.1:8787"
+const (
+	DefaultListenAddress             = "127.0.0.1:8787"
+	DefaultMediaProbeIntervalSeconds = 60
+	DefaultMediaProbeTimeoutSeconds  = 8
+)
 
 var (
 	cameraIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
@@ -20,9 +24,11 @@ var (
 )
 
 type Config struct {
-	ListenAddress string   `json:"listen_address"`
-	DataDir       string   `json:"data_dir"`
-	Cameras       []Camera `json:"cameras"`
+	ListenAddress             string   `json:"listen_address"`
+	DataDir                   string   `json:"data_dir"`
+	MediaProbeIntervalSeconds int      `json:"media_probe_interval_seconds,omitempty"`
+	MediaProbeTimeoutSeconds  int      `json:"media_probe_timeout_seconds,omitempty"`
+	Cameras                   []Camera `json:"cameras"`
 }
 
 type Camera struct {
@@ -77,6 +83,12 @@ func (c *Config) applyDefaults() {
 	if strings.TrimSpace(c.DataDir) == "" {
 		c.DataDir = "./data"
 	}
+	if c.MediaProbeIntervalSeconds == 0 {
+		c.MediaProbeIntervalSeconds = DefaultMediaProbeIntervalSeconds
+	}
+	if c.MediaProbeTimeoutSeconds == 0 {
+		c.MediaProbeTimeoutSeconds = DefaultMediaProbeTimeoutSeconds
+	}
 }
 
 func (c Config) Validate() error {
@@ -85,6 +97,12 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.DataDir) == "" {
 		return errors.New("data_dir must not be empty")
+	}
+	if c.MediaProbeIntervalSeconds < 5 || c.MediaProbeIntervalSeconds > 3600 {
+		return errors.New("media_probe_interval_seconds must be between 5 and 3600")
+	}
+	if c.MediaProbeTimeoutSeconds < 1 || c.MediaProbeTimeoutSeconds > 60 {
+		return errors.New("media_probe_timeout_seconds must be between 1 and 60")
 	}
 
 	seen := make(map[string]struct{}, len(c.Cameras))

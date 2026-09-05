@@ -68,6 +68,11 @@ jobs:
             PRIVACY.md \
             RECOVERY.md \
             CHANGELOG.md \
+            docs/ARCHITECTURE.md \
+            docs/MEDIA-ENGINE.md \
+            internal/media/probe.go \
+            internal/media/manager.go \
+            internal/media/recording.go \
             goreecloud.platform.yaml; do
             test -s "$file"
           done
@@ -75,4 +80,5 @@ jobs:
           grep -q 'id: goreecloud-home-security' goreecloud.platform.yaml
           grep -q 'lifecycle: development' goreecloud.platform.yaml
           grep -q 'status: nonconformant' goreecloud.platform.yaml
+          grep -q 'credentialed_probe_blocked' docs/MEDIA-ENGINE.md
           grep -q 'GoreeCloud Home Security' README.md

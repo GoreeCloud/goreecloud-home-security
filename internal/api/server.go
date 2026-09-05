@@ -34,9 +34,15 @@ func requestMetadata(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestID := make([]byte, 16)
 		if _, err := rand.Read(requestID); err != nil {
-			writeError(w, http.StatusInternalServerError, "request_id_unavailable", "request could not be initialized")
+			writeError(
+				w,
+				http.StatusInternalServerError,
+				"request_id_unavailable",
+				"request could not be initialized",
+			)
 			return
 		}
+
 		w.Header().Set("X-Request-ID", hex.EncodeToString(requestID))
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -58,6 +64,7 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		"lifecycle":     "development",
 		"api_version":   "v1",
 		"camera_count":  s.cameras.Count(),
+		"media":         s.cameras.Summary(),
 		"network_scope": "loopback-only",
 	})
 }
@@ -71,21 +78,37 @@ func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
 	if raw := r.URL.Query().Get("limit"); raw != "" {
 		parsed, err := strconv.Atoi(raw)
 		if err != nil || parsed < 1 || parsed > 1000 {
-			writeError(w, http.StatusBadRequest, "invalid_limit", "limit must be an integer between 1 and 1000")
+			writeError(
+				w,
+				http.StatusBadRequest,
+				"invalid_limit",
+				"limit must be an integer between 1 and 1000",
+			)
 			return
 		}
 		limit = parsed
 	}
+
 	items, err := s.journal.List(limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "event_store_unavailable", "event store could not be read")
+		writeError(
+			w,
+			http.StatusInternalServerError,
+			"event_store_unavailable",
+			"event store could not be read",
+		)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"events": items})
 }
 
 func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{"error": map[string]string{"code": code, "message": message}})
+	writeJSON(w, status, map[string]any{
+		"error": map[string]string{
+			"code":    code,
+			"message": message,
+		},
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, value any) {
