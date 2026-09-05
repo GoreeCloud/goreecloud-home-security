@@ -1,0 +1,153 @@
+package config
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/url"
+	"os"
+	"regexp"
+	"strings"
+)
+
+const DefaultListenAddress = "127.0.0.1:8787"
+
+var (
+	cameraIDPattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	envNamePattern  = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+)
+
+type Config struct {
+	ListenAddress string   `json:"listen_address"`
+	DataDir       string   `json:"data_dir"`
+	Cameras       []Camera `json:"cameras"`
+}
+
+type Camera struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	StreamURL   string `json:"stream_url"`
+	UsernameEnv string `json:"username_env,omitempty"`
+	PasswordEnv string `json:"password_env,omitempty"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func Load(path string) (Config, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return Config{}, fmt.Errorf("open config: %w", err)
+	}
+	defer f.Close()
+
+	dec := json.NewDecoder(f)
+	dec.DisallowUnknownFields()
+
+	var cfg Config
+	if err := dec.Decode(&cfg); err != nil {
+		return Config{}, fmt.Errorf("decode config: %w", err)
+	}
+	if err := ensureEOF(dec); err != nil {
+		return Config{}, err
+	}
+
+	cfg.applyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
+}
+
+func ensureEOF(dec *json.Decoder) error {
+	var extra any
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return errors.New("decode config: multiple JSON values are not allowed")
+		}
+		return fmt.Errorf("decode config: %w", err)
+	}
+	return nil
+}
+
+func (c *Config) applyDefaults() {
+	if strings.TrimSpace(c.ListenAddress) == "" {
+		c.ListenAddress = DefaultListenAddress
+	}
+	if strings.TrimSpace(c.DataDir) == "" {
+		c.DataDir = "./data"
+	}
+}
+
+func (c Config) Validate() error {
+	if err := validateLoopbackListen(c.ListenAddress); err != nil {
+		return err
+	}
+	if strings.TrimSpace(c.DataDir) == "" {
+		return errors.New("data_dir must not be empty")
+	}
+
+	seen := make(map[string]struct{}, len(c.Cameras))
+	for i, camera := range c.Cameras {
+		if err := camera.Validate(); err != nil {
+			return fmt.Errorf("camera[%d]: %w", i, err)
+		}
+		if _, ok := seen[camera.ID]; ok {
+			return fmt.Errorf("camera[%d]: duplicate camera id %q", i, camera.ID)
+		}
+		seen[camera.ID] = struct{}{}
+	}
+	return nil
+}
+
+func validateLoopbackListen(address string) error {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf("listen_address must be host:port: %w", err)
+	}
+	if port == "" {
+		return errors.New("listen_address must include a port")
+	}
+	if strings.EqualFold(host, "localhost") {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return errors.New("listen_address must use loopback while GoreeCloud Identity/Wardveil network authorization is not integrated")
+	}
+	return nil
+}
+
+func (c Camera) Validate() error {
+	if !cameraIDPattern.MatchString(c.ID) {
+		return fmt.Errorf("id %q must match %s", c.ID, cameraIDPattern.String())
+	}
+	if strings.TrimSpace(c.Name) == "" {
+		return errors.New("name must not be empty")
+	}
+
+	u, err := url.Parse(c.StreamURL)
+	if err != nil {
+		return fmt.Errorf("stream_url: %w", err)
+	}
+	if u.Scheme != "rtsp" && u.Scheme != "rtsps" {
+		return errors.New("stream_url must use rtsp or rtsps")
+	}
+	if u.Host == "" {
+		return errors.New("stream_url must include a host")
+	}
+	if u.User != nil {
+		return errors.New("stream_url must not contain credentials; use username_env/password_env secret references")
+	}
+
+	if (c.UsernameEnv == "") != (c.PasswordEnv == "") {
+		return errors.New("username_env and password_env must be provided together")
+	}
+	if c.UsernameEnv != "" && !envNamePattern.MatchString(c.UsernameEnv) {
+		return fmt.Errorf("username_env %q is not a valid environment-variable name", c.UsernameEnv)
+	}
+	if c.PasswordEnv != "" && !envNamePattern.MatchString(c.PasswordEnv) {
+		return fmt.Errorf("password_env %q is not a valid environment-variable name", c.PasswordEnv)
+	}
+	return nil
+}

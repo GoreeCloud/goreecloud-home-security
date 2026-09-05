@@ -1,0 +1,160 @@
+schema_version: '0.2'
+
+component:
+  type: application
+  id: goreecloud-home-security
+  product_name: GoreeCloud Home Security
+  repository: GoreeCloud/goreecloud-home-security
+
+lifecycle: development
+version: unreleased-development
+
+supported_platforms:
+  - linux
+
+api:
+  versions:
+    - v1
+  endpoints:
+    - name: health
+      url: /healthz
+      purpose: Local process health for the Development service.
+    - name: readiness
+      url: /readyz
+      purpose: Local service readiness after configuration and event-journal initialization.
+    - name: status
+      url: /api/v1/status
+      purpose: Bounded Development lifecycle and camera-count status without private camera details.
+    - name: cameras
+      url: /api/v1/cameras
+      purpose: Sanitized read-only camera identity and enabled-state inventory.
+    - name: events
+      url: /api/v1/events
+      purpose: Bounded read-only local security-event metadata access.
+
+platform_systems:
+  manager:
+    result: applicable-blocked
+    version: null
+    evidence:
+      - SPECIFICATIONS.md
+    notes: Operational status is applicable, but no accepted GoreeCloud Manager runtime integration exists.
+  privacy_shield:
+    result: applicable-blocked
+    version: null
+    evidence:
+      - PRIVACY.md
+      - internal/config/config.go
+      - internal/camera/registry.go
+      - internal/api/server_test.go
+    notes: Source-level privacy-safe defaults exist, but the approved Privacy Shield adapter/contract and runtime acceptance are not integrated.
+  wardveil_security:
+    result: applicable-blocked
+    version: null
+    evidence:
+      - SECURITY.md
+      - internal/config/config.go
+      - internal/api/server.go
+    notes: Development source controls exist, but Wardveil Security integration, authentication/authorization, remote exposure acceptance, and production security validation are incomplete.
+  everkeep:
+    result: applicable-blocked
+    version: null
+    evidence:
+      - RECOVERY.md
+      - internal/events/journal.go
+    notes: The local event journal is portable as a file, but accepted Everkeep backup, restore, recovery, migration, rollback, and restore-validation evidence do not exist.
+  glaze_ui:
+    result: applicable-blocked
+    version: null
+    evidence:
+      - SPECIFICATIONS.md
+    notes: The user interface is not implemented. Current Stable Glaze UI integration and acceptance remain required before production qualification.
+  mesh:
+    result: applicable-blocked
+    version: null
+    evidence:
+      - SPECIFICATIONS.md
+      - docs/ARCHITECTURE.md
+    notes: Mesh registration, capability discovery, policy, event publication, relationships, and runtime evidence integration are not implemented.
+    capabilities:
+      - home-security.cameras.read
+      - home-security.events.read
+      - home-security.recordings
+      - home-security.detection
+    dependencies: []
+    published_events: []
+    consumed_events: []
+  identity:
+    result: applicable-blocked
+    version: null
+    evidence:
+      - SECURITY.md
+      - SPECIFICATIONS.md
+    notes: GoreeCloud Identity authentication, sessions, authorization, household roles, and service identities are not implemented; the Development API therefore remains loopback-only.
+
+health:
+  health_endpoint: /healthz
+  readiness_endpoint: /readyz
+
+continuity:
+  backup:
+    required: true
+    requirements:
+      - Protect Home Security configuration, authoritative metadata, review/rule state, and selected media according to explicit retention and recovery policy.
+      - Keep reusable camera credentials outside ordinary source and portable configuration backups unless a separately protected secret-recovery mechanism requires them.
+  restore:
+    required: true
+    requirements:
+      - Validate restoration into a clean isolated target before Stable or production acceptance.
+      - Verify metadata/media integrity, secret references, authorization boundaries, and rollback behavior for the exact candidate.
+  export:
+    required: true
+    requirements:
+      - Provide authorized user-selected recording, clip, snapshot, and appropriate metadata export in documented portable formats.
+  portability:
+    required: true
+    requirements:
+      - Keep authoritative Home Security metadata and migration-relevant configuration in documented versioned formats independent of any complete third-party NVR product architecture.
+
+external_dependencies: []
+
+compatibility:
+  platform_contract: '0.2'
+  glaze_ui_required: '1.1.0'
+  requires:
+    - goreecloud-platform-contract==0.2
+    - glaze-ui==1.1.0
+  provides:
+    - home-security-api-v1
+
+evidence:
+  acceptance_tests:
+    - internal/config/config_test.go
+    - internal/camera/registry_test.go
+    - internal/events/journal_test.go
+    - internal/api/server_test.go
+  release: []
+
+conformance:
+  status: nonconformant
+  validated_at: null
+  evidence:
+    - SPECIFICATIONS.md
+    - SECURITY.md
+    - PRIVACY.md
+    - RECOVERY.md
+    - docs/ARCHITECTURE.md
+    - internal/config/config_test.go
+    - internal/api/server_test.go
+  blockers:
+    - Live camera ingest, media decode/restreaming, motion detection, object inference, tracking, recording, playback, and review UI are not implemented.
+    - GoreeCloud Manager operational integration and acceptance are incomplete.
+    - Privacy Shield contract integration and runtime privacy acceptance are incomplete.
+    - Wardveil Security integration, Identity-backed authorization, and production security validation are incomplete.
+    - Everkeep backup, restore, recovery, migration, rollback, and restore validation are incomplete.
+    - Current Stable Glaze UI implementation and acceptance are incomplete because no user interface exists yet.
+    - GoreeCloud Mesh registration, policy, dependency/event integration, and runtime acceptance are incomplete.
+    - GoreeCloud Identity account, session, authentication, authorization, and household-role integration are incomplete.
+    - Production media/inference dependencies have not been selected, pinned, reviewed, or validated.
+    - Target hardware, accelerator, storage, load, privacy, security, recovery, and production deployment acceptance are incomplete.
+    - No Stable or production-approved GoreeCloud Home Security release evidence exists.

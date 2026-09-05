@@ -1,0 +1,78 @@
+---
+name: GoreeCloud Home Security foundation
+
+# yamllint disable-line rule:truthy
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'agent/**'
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  foundation:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go 1.23.2
+        uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6.0.0
+        with:
+          go-version: '1.23.2'
+          cache: false
+
+      - name: Report Go toolchain
+        run: go version
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          files="$(gofmt -l ./cmd ./internal)"
+          if [ -n "$files" ]; then
+            printf 'Unformatted Go files:\n%s\n' "$files"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build daemon
+        run: go build ./cmd/home-securityd
+
+      - name: Check governed repository foundation
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            README.md \
+            SPECIFICATIONS.md \
+            FEATURES.md \
+            BENEFITS.md \
+            COMPETITIVE-OBJECTIVES.md \
+            BRANDING.md \
+            SECURITY.md \
+            PRIVACY.md \
+            RECOVERY.md \
+            CHANGELOG.md \
+            goreecloud.platform.yaml; do
+            test -s "$file"
+          done
+          grep -q "schema_version: '0.2'" goreecloud.platform.yaml
+          grep -q 'id: goreecloud-home-security' goreecloud.platform.yaml
+          grep -q 'lifecycle: development' goreecloud.platform.yaml
+          grep -q 'status: nonconformant' goreecloud.platform.yaml
+          grep -q 'GoreeCloud Home Security' README.md
