@@ -19,6 +19,9 @@ func TestLoadAppliesSafeDefaults(t *testing.T) {
 	if cfg.ListenAddress != DefaultListenAddress || cfg.DataDir != "./data" {
 		t.Fatalf("base defaults = %#v", cfg)
 	}
+	if cfg.EventRetentionDays != DefaultEventRetentionDays {
+		t.Fatalf("event retention default = %d", cfg.EventRetentionDays)
+	}
 	if cfg.MediaProbeIntervalSeconds != DefaultMediaProbeIntervalSeconds || cfg.MediaProbeTimeoutSeconds != DefaultMediaProbeTimeoutSeconds {
 		t.Fatalf("probe defaults = %#v", cfg)
 	}
@@ -32,34 +35,70 @@ func TestLoadAppliesSafeDefaults(t *testing.T) {
 		t.Fatalf("worker executable = %q", cfg.MediaWorkerExecutable)
 	}
 }
+
 func TestCameraRejectsCredentialsInURL(t *testing.T) {
 	camera := Camera{ID: "front-door", Name: "Front Door", StreamURL: "rtsp://admin:secret@camera.local/live", Enabled: true}
 	if err := camera.Validate(); err == nil || !strings.Contains(err.Error(), "must not contain credentials") {
 		t.Fatalf("expected credential rejection, got %v", err)
 	}
 }
+
 func TestConfigRejectsNonLoopbackListen(t *testing.T) {
-	cfg := Config{ListenAddress: "0.0.0.0:8787", DataDir: t.TempDir(), MediaProbeIntervalSeconds: 60, MediaProbeTimeoutSeconds: 8, MediaSessionRWTimeoutSeconds: 15, MediaSessionRestartMinSeconds: 1, MediaSessionRestartMaxSeconds: 30}
+	cfg := validConfig(t)
+	cfg.ListenAddress = "0.0.0.0:8787"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "loopback") {
 		t.Fatalf("expected loopback rejection, got %v", err)
 	}
 }
+
 func TestConfigRejectsDuplicateCameraIDs(t *testing.T) {
 	camera := Camera{ID: "garage", Name: "Garage", StreamURL: "rtsp://camera.local/live"}
-	cfg := Config{ListenAddress: DefaultListenAddress, DataDir: t.TempDir(), MediaProbeIntervalSeconds: 60, MediaProbeTimeoutSeconds: 8, MediaSessionRWTimeoutSeconds: 15, MediaSessionRestartMinSeconds: 1, MediaSessionRestartMaxSeconds: 30, Cameras: []Camera{camera, camera}}
+	cfg := validConfig(t)
+	cfg.Cameras = []Camera{camera, camera}
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "duplicate camera id") {
 		t.Fatalf("expected duplicate rejection, got %v", err)
 	}
 }
+
 func TestConfigRejectsInvalidSessionBackoff(t *testing.T) {
-	cfg := Config{ListenAddress: DefaultListenAddress, DataDir: t.TempDir(), MediaProbeIntervalSeconds: 60, MediaProbeTimeoutSeconds: 8, MediaSessionRWTimeoutSeconds: 15, MediaSessionRestartMinSeconds: 20, MediaSessionRestartMaxSeconds: 10}
+	cfg := validConfig(t)
+	cfg.MediaSessionRestartMinSeconds = 20
+	cfg.MediaSessionRestartMaxSeconds = 10
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "restart_max") {
 		t.Fatalf("expected session backoff rejection, got %v", err)
 	}
 }
+
 func TestConfigRejectsNonGoreeCloudWorkerNameWhenEnabled(t *testing.T) {
-	cfg := Config{ListenAddress: DefaultListenAddress, DataDir: t.TempDir(), MediaProbeIntervalSeconds: 60, MediaProbeTimeoutSeconds: 8, MediaSessionsEnabled: true, MediaSessionRWTimeoutSeconds: 15, MediaSessionRestartMinSeconds: 1, MediaSessionRestartMaxSeconds: 30, MediaWorkerExecutable: "/tmp/other-worker"}
+	cfg := validConfig(t)
+	cfg.MediaSessionsEnabled = true
+	cfg.MediaWorkerExecutable = "/tmp/other-worker"
 	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "home-security-media-worker") {
 		t.Fatalf("expected worker rejection, got %v", err)
+	}
+}
+
+func TestConfigRejectsEventRetentionOutsideBounds(t *testing.T) {
+	for _, days := range []int{-1, MaxEventRetentionDays + 1} {
+		cfg := validConfig(t)
+		cfg.EventRetentionDays = days
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "event_retention_days") {
+			t.Fatalf("retention days %d: expected bounded retention rejection, got %v", days, err)
+		}
+	}
+}
+
+func validConfig(t *testing.T) Config {
+	t.Helper()
+	return Config{
+		ListenAddress:                 DefaultListenAddress,
+		DataDir:                       t.TempDir(),
+		EventRetentionDays:            DefaultEventRetentionDays,
+		MediaProbeIntervalSeconds:     DefaultMediaProbeIntervalSeconds,
+		MediaProbeTimeoutSeconds:      DefaultMediaProbeTimeoutSeconds,
+		MediaSessionRWTimeoutSeconds:  DefaultMediaSessionRWTimeoutSeconds,
+		MediaSessionRestartMinSeconds: DefaultMediaSessionRestartMinSeconds,
+		MediaSessionRestartMaxSeconds: DefaultMediaSessionRestartMaxSeconds,
+		MediaWorkerExecutable:         DefaultMediaWorkerExecutable,
 	}
 }
