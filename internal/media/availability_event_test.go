@@ -48,6 +48,37 @@ func TestBuildAvailabilityEventCandidateOfflineIsSanitized(t *testing.T) {
 	}
 }
 
+func TestBuildAvailabilityEventCandidateDropsFreeFormReason(t *testing.T) {
+	event, changed, err := BuildAvailabilityEventCandidate(
+		"front-door",
+		camera.MediaStatus{State: camera.MediaOnline},
+		camera.MediaStatus{
+			State:  camera.MediaUnavailable,
+			Reason: "dial rtsp://operator:secret@192.0.2.10/live failed",
+		},
+		time.Date(2026, 9, 6, 20, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("build event: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected offline event candidate")
+	}
+	if event.Reason != "" {
+		t.Fatalf("free-form diagnostic leaked into event reason: %q", event.Reason)
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	payload := string(encoded)
+	for _, forbidden := range []string{"operator", "secret", "192.0.2.10", "rtsp://"} {
+		if strings.Contains(payload, forbidden) {
+			t.Fatalf("event payload leaked private diagnostic %q: %s", forbidden, payload)
+		}
+	}
+}
+
 func TestBuildAvailabilityEventCandidateRecovery(t *testing.T) {
 	event, changed, err := BuildAvailabilityEventCandidate(
 		"garage",
