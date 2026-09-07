@@ -19,7 +19,10 @@ import (
 	"github.com/GoreeCloud/goreecloud-home-security/internal/media"
 )
 
-const version = "unreleased-development"
+const (
+	version                = "unreleased-development"
+	retentionSweepInterval = 6 * time.Hour
+)
 
 func main() {
 	if err := run(); err != nil {
@@ -49,6 +52,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	retention := time.Duration(cfg.EventRetentionDays) * 24 * time.Hour
+	if _, err := journal.PruneBefore(time.Now().UTC().Add(-retention)); err != nil {
+		return fmt.Errorf("enforce event retention at startup: %w", err)
+	}
 	handler := api.New(registry, journal).Handler()
 	httpServer := &http.Server{Addr: cfg.ListenAddress, Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 20}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -61,9 +68,13 @@ func run() error {
 		supervisor := media.NewSupervisor(cfg.Cameras, registry, session, time.Duration(cfg.MediaSessionRestartMinSeconds)*time.Second, time.Duration(cfg.MediaSessionRestartMaxSeconds)*time.Second)
 		go supervisor.Run(ctx)
 	}
+	retentionErrCh := make(chan error, 1)
+	go func() {
+		retentionErrCh <- runEventRetention(ctx, journal, retention)
+	}()
 	errCh := make(chan error, 1)
 	go func() {
-		slog.Info("GoreeCloud Home Security development API listening", "address", cfg.ListenAddress, "cameras", registry.Count(), "media_sessions_enabled", cfg.MediaSessionsEnabled)
+		slog.Info("GoreeCloud Home Security development API listening", "address", cfg.ListenAddress, "cameras", registry.Count(), "media_sessions_enabled", cfg.MediaSessionsEnabled, "event_retention_days", cfg.EventRetentionDays)
 		errCh <- httpServer.ListenAndServe()
 	}()
 	select {
@@ -72,9 +83,32 @@ func run() error {
 			return nil
 		}
 		return err
+	case err := <-retentionErrCh:
+		if err == nil {
+			return nil
+		}
+		return err
 	case <-ctx.Done():
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return httpServer.Shutdown(shutdownCtx)
+	}
+}
+
+func runEventRetention(ctx context.Context, journal *events.Journal, retention time.Duration) error {
+	if retention < 24*time.Hour || retention > time.Duration(config.MaxEventRetentionDays)*24*time.Hour {
+		return fmt.Errorf("event retention duration is outside configured bounds")
+	}
+	ticker := time.NewTicker(retentionSweepInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case now := <-ticker.C:
+			if _, err := journal.PruneBefore(now.UTC().Add(-retention)); err != nil {
+				return fmt.Errorf("enforce event retention: %w", err)
+			}
+		}
 	}
 }
