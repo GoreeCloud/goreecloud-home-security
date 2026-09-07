@@ -15,6 +15,8 @@ import (
 
 const (
 	DefaultListenAddress                 = "127.0.0.1:8787"
+	DefaultEventRetentionDays            = 30
+	MaxEventRetentionDays                = 365
 	DefaultMediaProbeIntervalSeconds     = 60
 	DefaultMediaProbeTimeoutSeconds      = 8
 	DefaultMediaSessionRWTimeoutSeconds  = 15
@@ -31,6 +33,7 @@ var (
 type Config struct {
 	ListenAddress                 string   `json:"listen_address"`
 	DataDir                       string   `json:"data_dir"`
+	EventRetentionDays            int      `json:"event_retention_days,omitempty"`
 	MediaProbeIntervalSeconds     int      `json:"media_probe_interval_seconds,omitempty"`
 	MediaProbeTimeoutSeconds      int      `json:"media_probe_timeout_seconds,omitempty"`
 	MediaSessionsEnabled          bool     `json:"media_sessions_enabled,omitempty"`
@@ -90,6 +93,9 @@ func (c *Config) applyDefaults() {
 	if strings.TrimSpace(c.DataDir) == "" {
 		c.DataDir = "./data"
 	}
+	if c.EventRetentionDays == 0 {
+		c.EventRetentionDays = DefaultEventRetentionDays
+	}
 	if c.MediaProbeIntervalSeconds == 0 {
 		c.MediaProbeIntervalSeconds = DefaultMediaProbeIntervalSeconds
 	}
@@ -116,6 +122,9 @@ func (c Config) Validate() error {
 	}
 	if strings.TrimSpace(c.DataDir) == "" {
 		return errors.New("data_dir must not be empty")
+	}
+	if c.EventRetentionDays < 1 || c.EventRetentionDays > MaxEventRetentionDays {
+		return fmt.Errorf("event_retention_days must be between 1 and %d", MaxEventRetentionDays)
 	}
 	if c.MediaProbeIntervalSeconds < 5 || c.MediaProbeIntervalSeconds > 3600 {
 		return errors.New("media_probe_interval_seconds must be between 5 and 3600")
