@@ -48,7 +48,17 @@ func TestBuildAvailabilityEventCandidateOfflineIsSanitized(t *testing.T) {
 	}
 }
 
-func TestBuildAvailabilityEventCandidateDropsFreeFormReason(t *testing.T) {
+func TestSanitizedAvailabilityReasonDropsFreeFormDiagnostic(t *testing.T) {
+	privateDiagnostic := "dial rtsp://operator:secret@192.0.2.10/live failed"
+	if got := sanitizedAvailabilityReason(privateDiagnostic); got != "" {
+		t.Fatalf("free-form diagnostic was not dropped: %q", got)
+	}
+	if got := sanitizedAvailabilityReason("session_stalled"); got != "session_stalled" {
+		t.Fatalf("bounded categorical reason was not preserved: %q", got)
+	}
+}
+
+func TestBuildAvailabilityEventCandidateRejectsFreeFormReasonBeforeEmission(t *testing.T) {
 	event, changed, err := BuildAvailabilityEventCandidate(
 		"front-door",
 		camera.MediaStatus{State: camera.MediaOnline},
@@ -58,24 +68,11 @@ func TestBuildAvailabilityEventCandidateDropsFreeFormReason(t *testing.T) {
 		},
 		time.Date(2026, 9, 6, 20, 0, 0, 0, time.UTC),
 	)
-	if err != nil {
-		t.Fatalf("build event: %v", err)
+	if err == nil {
+		t.Fatal("expected free-form media diagnostic to fail closed")
 	}
-	if !changed {
-		t.Fatal("expected offline event candidate")
-	}
-	if event.Reason != "" {
-		t.Fatalf("free-form diagnostic leaked into event reason: %q", event.Reason)
-	}
-	encoded, err := json.Marshal(event)
-	if err != nil {
-		t.Fatalf("marshal event: %v", err)
-	}
-	payload := string(encoded)
-	for _, forbidden := range []string{"operator", "secret", "192.0.2.10", "rtsp://"} {
-		if strings.Contains(payload, forbidden) {
-			t.Fatalf("event payload leaked private diagnostic %q: %s", forbidden, payload)
-		}
+	if changed || event != (AvailabilityEventCandidate{}) {
+		t.Fatalf("invalid diagnostic produced an event candidate: changed=%v event=%#v", changed, event)
 	}
 }
 
