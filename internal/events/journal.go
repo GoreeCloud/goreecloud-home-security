@@ -50,17 +50,86 @@ func NewJournal(path string) (*Journal, error) {
 }
 
 func (j *Journal) Append(event Event) error {
-	if err := event.Validate(); err != nil {
+	payload, err := encodeEvent(event)
+	if err != nil {
 		return err
 	}
-	payload, err := json.Marshal(event)
+
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.appendEncodedLocked(payload)
+}
+
+// AppendUnique appends an event only when its durable ID does not already
+// exist anywhere in the journal. The complete journal is scanned under the same
+// mutex as the append, so restart/replay of the same deterministic event ID is
+// idempotent within one Journal authority. Malformed historical data fails
+// closed instead of being skipped.
+func (j *Journal) AppendUnique(event Event) (bool, error) {
+	payload, err := encodeEvent(event)
 	if err != nil {
-		return fmt.Errorf("encode event: %w", err)
+		return false, err
 	}
 
 	j.mu.Lock()
 	defer j.mu.Unlock()
 
+	all, err := j.loadAllLocked()
+	if err != nil {
+		return false, err
+	}
+	for _, existing := range all {
+		if existing.ID == event.ID {
+			return false, nil
+		}
+	}
+	if err := j.appendEncodedLocked(payload); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (j *Journal) List(limit int) ([]Event, error) {
+	if limit <= 0 || limit > 1000 {
+		return nil, errors.New("limit must be between 1 and 1000")
+	}
+
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	all, err := j.loadAllLocked()
+	if err != nil {
+		return nil, err
+	}
+	if len(all) > limit {
+		all = all[len(all)-limit:]
+	}
+	return all, nil
+}
+
+// LastForCamera returns the newest durable event matching a camera and event
+// type while scanning the complete journal with bounded line sizes. It does not
+// expose raw media state or add a new retention policy.
+func (j *Journal) LastForCamera(cameraID, eventType string) (*Event, error) {
+	if cameraID == "" || eventType == "" {
+		return nil, errors.New("camera id and event type are required")
+	}
+	j.mu.Lock()
+	defer j.mu.Unlock()
+
+	all, err := j.loadAllLocked()
+	if err != nil {
+		return nil, err
+	}
+	for index := len(all) - 1; index >= 0; index-- {
+		if all[index].CameraID == cameraID && all[index].Type == eventType {
+			copy := all[index]
+			return &copy, nil
+		}
+	}
+	return nil, nil
+}
+
+func (j *Journal) appendEncodedLocked(payload []byte) error {
 	f, err := os.OpenFile(j.path, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open journal: %w", err)
@@ -75,14 +144,7 @@ func (j *Journal) Append(event Event) error {
 	return nil
 }
 
-func (j *Journal) List(limit int) ([]Event, error) {
-	if limit <= 0 || limit > 1000 {
-		return nil, errors.New("limit must be between 1 and 1000")
-	}
-
-	j.mu.Lock()
-	defer j.mu.Unlock()
-
+func (j *Journal) loadAllLocked() ([]Event, error) {
 	f, err := os.Open(j.path)
 	if err != nil {
 		return nil, fmt.Errorf("open journal: %w", err)
@@ -107,11 +169,18 @@ func (j *Journal) List(limit int) ([]Event, error) {
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan journal: %w", err)
 	}
-
-	if len(all) > limit {
-		all = all[len(all)-limit:]
-	}
 	return all, nil
+}
+
+func encodeEvent(event Event) ([]byte, error) {
+	if err := event.Validate(); err != nil {
+		return nil, err
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return nil, fmt.Errorf("encode event: %w", err)
+	}
+	return payload, nil
 }
 
 func (e Event) Validate() error {
