@@ -10,7 +10,10 @@ import (
 
 const AvailabilityEventSchemaVersion = 1
 
-var availabilityCameraIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+var (
+	availabilityCameraIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
+	availabilityReasonPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+)
 
 // AvailabilityEventCandidate is a privacy-minimized durable-event candidate for
 // ordinary camera connectivity. It deliberately has no tamper, intrusion,
@@ -54,6 +57,17 @@ func BuildAvailabilityEventCandidate(
 		EventType:     transition,
 		CameraID:      cameraID,
 		OccurredAt:    observedAt.UTC(),
-		Reason:        current.Reason,
+		Reason:        sanitizedAvailabilityReason(current.Reason),
 	}, true, nil
+}
+
+// sanitizedAvailabilityReason only carries closed-shape categorical diagnostics
+// into the future durable-event path. Free-form adapter/runtime diagnostics may
+// contain endpoints, paths, credentials, or other private implementation detail
+// and are therefore omitted rather than copied into the journal candidate.
+func sanitizedAvailabilityReason(reason string) string {
+	if availabilityReasonPattern.MatchString(reason) {
+		return reason
+	}
+	return ""
 }
