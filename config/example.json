@@ -1,6 +1,7 @@
 {
   "listen_address": "127.0.0.1:8787",
   "data_dir": "./data",
+  "event_retention_days": 30,
   "media_probe_interval_seconds": 60,
   "media_probe_timeout_seconds": 8,
   "media_sessions_enabled": false,
