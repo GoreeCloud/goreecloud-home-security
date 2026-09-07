@@ -68,9 +68,9 @@ func TestPersistAvailabilityEventCandidateDebouncesOppositeFlap(t *testing.T) {
 	base := time.Date(2026, 9, 7, 20, 0, 0, 0, time.UTC)
 	offline := AvailabilityEventCandidate{
 		SchemaVersion: AvailabilityEventSchemaVersion,
-		EventType: AvailabilityOffline,
-		CameraID: "garage",
-		OccurredAt: base,
+		EventType:     AvailabilityOffline,
+		CameraID:      "garage",
+		OccurredAt:    base,
 	}
 	if appended, err := PersistAvailabilityEventCandidate(journal, offline, 30*time.Second); err != nil || !appended {
 		t.Fatalf("offline persist: appended=%v err=%v", appended, err)
@@ -78,9 +78,9 @@ func TestPersistAvailabilityEventCandidateDebouncesOppositeFlap(t *testing.T) {
 
 	recovered := AvailabilityEventCandidate{
 		SchemaVersion: AvailabilityEventSchemaVersion,
-		EventType: AvailabilityRecovered,
-		CameraID: "garage",
-		OccurredAt: base.Add(10 * time.Second),
+		EventType:     AvailabilityRecovered,
+		CameraID:      "garage",
+		OccurredAt:    base.Add(10 * time.Second),
 	}
 	if appended, err := PersistAvailabilityEventCandidate(journal, recovered, 30*time.Second); err != nil || appended {
 		t.Fatalf("flap should be suppressed: appended=%v err=%v", appended, err)
@@ -107,18 +107,18 @@ func TestPersistAvailabilityEventCandidateFailsClosedOnOutOfOrderObservation(t *
 	base := time.Date(2026, 9, 7, 20, 0, 0, 0, time.UTC)
 	first := AvailabilityEventCandidate{
 		SchemaVersion: AvailabilityEventSchemaVersion,
-		EventType: AvailabilityOffline,
-		CameraID: "side-yard",
-		OccurredAt: base,
+		EventType:     AvailabilityOffline,
+		CameraID:      "side-yard",
+		OccurredAt:    base,
 	}
 	if _, err := PersistAvailabilityEventCandidate(journal, first, 0); err != nil {
 		t.Fatal(err)
 	}
 	older := AvailabilityEventCandidate{
 		SchemaVersion: AvailabilityEventSchemaVersion,
-		EventType: AvailabilityRecovered,
-		CameraID: "side-yard",
-		OccurredAt: base.Add(-time.Second),
+		EventType:     AvailabilityRecovered,
+		CameraID:      "side-yard",
+		OccurredAt:    base.Add(-time.Second),
 	}
 	if _, err := PersistAvailabilityEventCandidate(journal, older, 0); err == nil {
 		t.Fatal("expected out-of-order observation rejection")
