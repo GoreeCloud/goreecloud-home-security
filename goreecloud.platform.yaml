@@ -1,0 +1,136 @@
+schema_version: '0.2'
+
+component:
+  type: application
+  id: goreecloud-home-security
+  product_name: GoreeCloud Home Security
+  repository: GoreeCloud/goreecloud-home-security
+
+lifecycle: development
+version: unreleased-development
+
+supported_platforms:
+  - linux
+
+api:
+  versions: [v1]
+  endpoints:
+    - {name: health, url: /healthz, purpose: Local Development process health.}
+    - {name: readiness, url: /readyz, purpose: Local Development service readiness.}
+    - {name: status, url: /api/v1/status, purpose: Sanitized lifecycle and aggregate camera/media/session status.}
+    - {name: cameras, url: /api/v1/cameras, purpose: Sanitized camera identity and bounded media/session state.}
+    - {name: events, url: /api/v1/events, purpose: Bounded read-only local security-event metadata.}
+
+platform_systems:
+  manager:
+    result: applicable-blocked
+    version: null
+    evidence: [SPECIFICATIONS.md]
+    notes: No accepted Manager runtime integration exists.
+  privacy_shield:
+    result: applicable-blocked
+    version: null
+    evidence: [PRIVACY.md, internal/media/descriptor.go, internal/media/rtsp_worker.go, internal/api/server_test.go]
+    notes: Local-first/minimized source controls exist; Privacy Shield contract/runtime acceptance is not integrated.
+  wardveil_security:
+    result: applicable-blocked
+    version: null
+    evidence: [SECURITY.md, internal/media/descriptor.go, internal/media/rtsp_worker.go, internal/media/session.go, internal/media/supervisor.go]
+    notes: Protected credential transfer, bounded RTSP parsing, TLS verification, and retry policy exist; Wardveil integration and production security acceptance remain incomplete.
+  everkeep:
+    result: applicable-blocked
+    version: null
+    evidence: [RECOVERY.md, internal/events/journal.go]
+    notes: Accepted backup/restore/recovery/migration/rollback evidence does not exist.
+  glaze_ui:
+    result: applicable-blocked
+    version: null
+    evidence: [SPECIFICATIONS.md]
+    notes: No user interface exists yet.
+  mesh:
+    result: applicable-blocked
+    version: null
+    evidence: [SPECIFICATIONS.md, docs/ARCHITECTURE.md]
+    notes: Registration, policy, relationships, dependencies, and event integration are not implemented.
+    capabilities: [home-security.cameras.read, home-security.events.read, home-security.recordings, home-security.detection]
+    dependencies: []
+    published_events: []
+    consumed_events: []
+  identity:
+    result: applicable-blocked
+    version: null
+    evidence: [SECURITY.md, SPECIFICATIONS.md]
+    notes: Authentication, sessions, authorization, household roles, and service identities are not implemented; API remains loopback-only.
+
+health:
+  health_endpoint: /healthz
+  readiness_endpoint: /readyz
+
+continuity:
+  backup:
+    required: true
+    requirements:
+      - Protect configuration, authoritative metadata, review/rule state, and selected media according to explicit policy.
+      - Keep reusable camera credentials outside ordinary portable backups absent an approved protected secret-recovery design.
+  restore:
+    required: true
+    requirements:
+      - Validate clean-target restoration before Stable/production acceptance.
+  export:
+    required: true
+    requirements:
+      - Provide authorized portable media and appropriate metadata export.
+  portability:
+    required: true
+    requirements:
+      - Keep authoritative metadata/configuration in documented versioned formats independent of third-party complete NVR architecture.
+
+external_dependencies:
+  - name: ffmpeg-ffprobe
+    purpose: Optional bounded Development stream probing and future recording/remux/decode foundation; the authenticated long-running RTSP session worker is GoreeCloud-owned.
+    required: false
+    version_constraint: null
+
+compatibility:
+  platform_contract: '0.2'
+  glaze_ui_required: '1.1.0'
+  requires: [goreecloud-platform-contract==0.2, glaze-ui==1.1.0]
+  provides: [home-security-api-v1]
+
+evidence:
+  acceptance_tests:
+    - internal/config/config_test.go
+    - internal/camera/registry_test.go
+    - internal/events/journal_test.go
+    - internal/api/server_test.go
+    - internal/media/probe_test.go
+    - internal/media/manager_test.go
+    - internal/media/descriptor_test.go
+    - internal/media/session_test.go
+    - internal/media/supervisor_test.go
+    - internal/media/rtsp_worker_test.go
+    - internal/media/recording_test.go
+  release: []
+
+conformance:
+  status: nonconformant
+  validated_at: null
+  evidence:
+    - SPECIFICATIONS.md
+    - SECURITY.md
+    - PRIVACY.md
+    - RECOVERY.md
+    - docs/ARCHITECTURE.md
+    - docs/MEDIA-ENGINE.md
+    - internal/media/descriptor_test.go
+    - internal/media/session_test.go
+    - internal/media/supervisor_test.go
+    - internal/media/rtsp_worker_test.go
+  blockers:
+    - The GoreeCloud-owned authenticated RTSP worker is source/test validated only against a controlled local server; exact physical-camera sustained-flow, reconnect/stall, TLS trust, and target-runtime evidence do not exist.
+    - Production worker artifact/path integrity, sandbox/resource isolation, parser fuzzing, and Wardveil acceptance are incomplete.
+    - Persisted camera offline/recovery events and separate tamper detection are not implemented.
+    - Recorder execution, crash-safe segment indexing, retention/storage-pressure enforcement, playback, restreaming, motion detection, object inference/tracking, and review UI are not implemented.
+    - GoreeCloud Manager, Privacy Shield, Wardveil Security, Everkeep, Glaze UI, GoreeCloud Mesh, and GoreeCloud Identity integrations/acceptance are incomplete.
+    - FFmpeg/FFprobe has no production-selected/pinned version, artifact provenance, target-runtime acceptance, or hardware-acceleration validation.
+    - No Stable or production-approved Home Security release evidence exists.

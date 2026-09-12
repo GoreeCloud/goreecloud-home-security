@@ -1,0 +1,22 @@
+{
+  "listen_address": "127.0.0.1:8787",
+  "data_dir": "./data",
+  "event_retention_days": 30,
+  "media_probe_interval_seconds": 60,
+  "media_probe_timeout_seconds": 8,
+  "media_sessions_enabled": false,
+  "media_session_rw_timeout_seconds": 15,
+  "media_session_restart_min_seconds": 1,
+  "media_session_restart_max_seconds": 30,
+  "media_worker_executable": "home-security-media-worker",
+  "cameras": [
+    {
+      "id": "front-door",
+      "name": "Front Door",
+      "stream_url": "rtsp://camera.local/stream",
+      "username_env": "HOME_SECURITY_FRONT_DOOR_USER",
+      "password_env": "HOME_SECURITY_FRONT_DOOR_PASSWORD",
+      "enabled": true
+    }
+  ]
+}
